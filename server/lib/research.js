@@ -28,6 +28,14 @@ function extractSources(text) {
   }
 }
 
+// Cases that keep coming up empty get researched less often. Streak resets
+// to 0 the moment a run finds something new.
+function daysBetweenRuns(missStreak) {
+  if (missStreak >= 4) return 28;
+  if (missStreak >= 2) return 14;
+  return 7;
+}
+
 // Searches the web for material on a case and files anything new as pending
 // club contributions for a regional/super admin to review. Never throws —
 // callers (case approval, the weekly cron) must not go down with it.
@@ -40,7 +48,7 @@ async function runResearchForCase(caseId) {
 
   try {
     const { rows: caseRows } = await pool.query(
-      `SELECT id, title, victim_name, location, date_occurred, summary, solved_at
+      `SELECT id, title, victim_name, location, date_occurred, summary, solved_at, research_miss_streak
        FROM cases WHERE id = $1 AND status = 'approved'`,
       [caseId]
     );
@@ -93,8 +101,12 @@ If you find nothing new and credible, respond with an empty array: []`;
       added += 1;
     }
 
-    await pool.query('UPDATE cases SET last_researched_at = NOW() WHERE id = $1', [caseId]);
-    console.log(`Research for case ${caseId}: added ${added} pending contribution(s)`);
+    const newStreak = added > 0 ? 0 : caseRow.research_miss_streak + 1;
+    await pool.query(
+      'UPDATE cases SET last_researched_at = NOW(), research_miss_streak = $2 WHERE id = $1',
+      [caseId, newStreak]
+    );
+    console.log(`Research for case ${caseId}: added ${added} pending contribution(s), miss streak now ${newStreak}`);
   } catch (err) {
     console.error(`Research failed for case ${caseId}:`, err.message);
   }
@@ -105,11 +117,23 @@ async function runWeeklyResearch() {
     console.log('Weekly research skipped: ANTHROPIC_API_KEY not set');
     return;
   }
-  const { rows } = await pool.query(`SELECT id FROM cases WHERE status = 'approved' AND solved_at IS NULL`);
-  for (const { id } of rows) {
-    await runResearchForCase(id);
+  const { rows } = await pool.query(
+    `SELECT id, last_researched_at, research_miss_streak FROM cases WHERE status = 'approved' AND solved_at IS NULL`
+  );
+  const now = Date.now();
+  let skipped = 0;
+  for (const c of rows) {
+    if (c.last_researched_at) {
+      const dueAt = new Date(c.last_researched_at).getTime() + daysBetweenRuns(c.research_miss_streak) * 24 * 60 * 60 * 1000;
+      if (dueAt > now) {
+        skipped += 1;
+        continue;
+      }
+    }
+    await runResearchForCase(c.id);
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
+  console.log(`Weekly research: ran ${rows.length - skipped} case(s), skipped ${skipped} still in backoff`);
 }
 
 module.exports = { runResearchForCase, runWeeklyResearch };

@@ -45,9 +45,11 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
   case, the server uses the Claude API's web search tool to look for new material and
   files anything it finds as a contribution from the "MURD'R CLUB" system account.
   Those land in a `pending` state and need a regional/super admin's approval (same
-  admin panel as case approvals) before they're visible on the case page. Requires an
-  `ANTHROPIC_API_KEY` env var — without it, research silently no-ops and the rest of
-  the app is unaffected.
+  admin panel as case approvals) before they're visible on the case page. Cases that
+  keep turning up nothing back off automatically — every 2 weeks after 2 empty runs,
+  every 4 weeks after 4 — and reset to weekly the moment something new turns up.
+  Requires an `ANTHROPIC_API_KEY` env var — without it, research silently no-ops and
+  the rest of the app is unaffected.
 - **Solve requests** — a member on a case's hunt can propose it's solved with a written
   explanation. A regional or super admin approves or rejects the closure. Once approved,
   the case is locked (no new joins, contributions, ratings, or chat) but stays visible

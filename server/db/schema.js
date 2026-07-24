@@ -59,6 +59,7 @@ async function init() {
   `);
   await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS solved_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS last_researched_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS research_miss_streak INTEGER NOT NULL DEFAULT 0`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS case_members (
