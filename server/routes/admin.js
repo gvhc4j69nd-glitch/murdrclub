@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db/schema');
 const { requireAuth, isRegionAdmin } = require('../middleware/auth');
+const { runResearchForCase } = require('../lib/research');
 
 const router = express.Router();
 
@@ -48,6 +49,7 @@ router.post('/cases/:id/approve', async (req, res) => {
     `UPDATE cases SET status = 'approved', reviewed_by = $1, review_note = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
     [req.user.id, req.body?.note || '', req.params.id]
   );
+  runResearchForCase(updated[0].id).catch(err => console.error('Research kickoff failed:', err.message));
   res.json({ case: updated[0] });
 });
 
@@ -63,6 +65,57 @@ router.post('/cases/:id/reject', async (req, res) => {
     [req.user.id, req.body?.note || '', req.params.id]
   );
   res.json({ case: updated[0] });
+});
+
+// Pending solve requests across the regions this admin covers.
+router.get('/solve-requests', async (req, res) => {
+  if (req.adminRegions.length === 0) return res.json({ solveRequests: [] });
+  const { rows } = await pool.query(
+    `SELECT sr.*, c.title AS case_title, c.region_key, r.name AS region_name, u.username AS requested_by_username
+     FROM solve_requests sr
+     JOIN cases c ON c.id = sr.case_id
+     JOIN regions r ON r.key = c.region_key
+     JOIN users u ON u.id = sr.requested_by
+     WHERE sr.status = 'pending' AND c.region_key = ANY($1::text[])
+     ORDER BY sr.created_at ASC`,
+    [req.adminRegions]
+  );
+  res.json({ solveRequests: rows });
+});
+
+router.post('/solve-requests/:id/approve', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT sr.*, c.region_key FROM solve_requests sr JOIN cases c ON c.id = sr.case_id WHERE sr.id = $1`,
+    [req.params.id]
+  );
+  const requestRow = rows[0];
+  if (!requestRow || requestRow.status !== 'pending') return res.status(404).json({ error: 'Solve request not found' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, requestRow.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE solve_requests SET status = 'approved', reviewed_by = $1, review_note = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+    [req.user.id, req.body?.note || '', req.params.id]
+  );
+  await pool.query('UPDATE cases SET solved_at = NOW() WHERE id = $1', [requestRow.case_id]);
+  res.json({ solveRequest: updated[0] });
+});
+
+router.post('/solve-requests/:id/reject', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT sr.*, c.region_key FROM solve_requests sr JOIN cases c ON c.id = sr.case_id WHERE sr.id = $1`,
+    [req.params.id]
+  );
+  const requestRow = rows[0];
+  if (!requestRow || requestRow.status !== 'pending') return res.status(404).json({ error: 'Solve request not found' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, requestRow.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE solve_requests SET status = 'rejected', reviewed_by = $1, review_note = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+    [req.user.id, req.body?.note || '', req.params.id]
+  );
+  res.json({ solveRequest: updated[0] });
 });
 
 // --- Superadmin: manage who administers which region ---

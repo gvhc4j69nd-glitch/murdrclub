@@ -28,6 +28,11 @@ async function isCaseMember(caseId, userId) {
   return rows.length > 0;
 }
 
+async function isCaseSolved(caseId) {
+  const { rows } = await pool.query('SELECT solved_at FROM cases WHERE id = $1', [caseId]);
+  return !!rows[0]?.solved_at;
+}
+
 async function saveMessage(scope, scopeId, senderId, body) {
   const { rows: inserted } = await pool.query(
     'INSERT INTO messages (scope, scope_id, sender_id, body) VALUES ($1, $2, $3, $4) RETURNING id',
@@ -41,4 +46,4 @@ async function saveMessage(scope, scopeId, senderId, body) {
   return rows[0];
 }
 
-module.exports = { getOrCreateDm, isCaseMember, saveMessage };
+module.exports = { getOrCreateDm, isCaseMember, isCaseSolved, saveMessage };

@@ -1,4 +1,6 @@
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { REGIONS } = require('./regions');
 
 const pool = new Pool({
@@ -18,6 +20,7 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_club BOOLEAN NOT NULL DEFAULT false`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS regions (
@@ -54,6 +57,8 @@ async function init() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS solved_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS last_researched_at TIMESTAMPTZ`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS case_members (
@@ -77,6 +82,7 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE contributions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'visible'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contribution_ratings (
@@ -110,11 +116,29 @@ async function init() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solve_requests (
+      id SERIAL PRIMARY KEY,
+      case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+      requested_by INTEGER NOT NULL REFERENCES users(id),
+      note TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reviewed_by INTEGER REFERENCES users(id),
+      review_note TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cases_region_status ON cases(region_key, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contributions_case ON contributions(case_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ratings_contribution ON contribution_ratings(contribution_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_scope ON messages(scope, scope_id, created_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_case_members_case ON case_members(case_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_solve_requests_case ON solve_requests(case_id)`);
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_solve_requests_one_pending ON solve_requests(case_id) WHERE status = 'pending'`
+  );
 
   for (const [i, r] of REGIONS.entries()) {
     await pool.query(
@@ -122,6 +146,13 @@ async function init() {
       [r.key, r.name, i]
     );
   }
+
+  await pool.query(
+    `INSERT INTO users (username, email, password_hash, is_club)
+     VALUES ('MURD''R CLUB', 'club@murdrclub.internal', $1, true)
+     ON CONFLICT (username) DO NOTHING`,
+    [bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10)]
+  );
 }
 
 module.exports = { pool, init };

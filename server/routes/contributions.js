@@ -11,9 +11,10 @@ async function isCaseMember(caseId, userId) {
 
 // Add information (text, link, photo, video) to a case. Must have joined the hunt.
 router.post('/cases/:id/contributions', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, status FROM cases WHERE id = $1', [req.params.id]);
+  const { rows } = await pool.query('SELECT id, status, solved_at FROM cases WHERE id = $1', [req.params.id]);
   const caseRow = rows[0];
   if (!caseRow || caseRow.status !== 'approved') return res.status(404).json({ error: 'Case not found' });
+  if (caseRow.solved_at) return res.status(400).json({ error: 'Case is closed' });
   if (!(await isCaseMember(req.params.id, req.user.id))) {
     return res.status(403).json({ error: 'Join the hunt before adding information' });
   }
@@ -30,8 +31,8 @@ router.post('/cases/:id/contributions', requireAuth, async (req, res) => {
   );
 
   const { rows: contribRows } = await pool.query(
-    `SELECT ct.id, ct.body, ct.link_url, ct.photo_url, ct.video_url, ct.created_at,
-            u.id AS user_id, u.username
+    `SELECT ct.id, ct.body, ct.link_url, ct.photo_url, ct.video_url, ct.created_at, ct.status,
+            u.id AS user_id, u.username, u.is_club
      FROM contributions ct JOIN users u ON u.id = ct.user_id WHERE ct.id = $1`,
     [inserted[0].id]
   );
@@ -46,9 +47,14 @@ router.post('/contributions/:id/rate', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Rating must be an integer 1-5' });
   }
 
-  const { rows } = await pool.query('SELECT id, case_id, user_id FROM contributions WHERE id = $1', [req.params.id]);
+  const { rows } = await pool.query(
+    `SELECT ct.id, ct.case_id, ct.user_id, c.solved_at
+     FROM contributions ct JOIN cases c ON c.id = ct.case_id WHERE ct.id = $1`,
+    [req.params.id]
+  );
   const contribution = rows[0];
   if (!contribution) return res.status(404).json({ error: 'Contribution not found' });
+  if (contribution.solved_at) return res.status(400).json({ error: 'Case is closed' });
   if (contribution.user_id === req.user.id) return res.status(400).json({ error: "You can't rate your own contribution" });
   if (!(await isCaseMember(contribution.case_id, req.user.id))) {
     return res.status(403).json({ error: 'Join the hunt before rating contributions' });

@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/schema');
-const { requireAuth, optionalAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth, isRegionAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -54,18 +54,21 @@ router.get('/:id', optionalAuth, async (req, res) => {
     [req.params.id]
   );
 
+  const canSeePending =
+    !!req.user && (req.user.is_superadmin || (await isRegionAdmin(req.user.id, caseRow.region_key)));
+
   const { rows: contributions } = await pool.query(
-    `SELECT ct.id, ct.body, ct.link_url, ct.photo_url, ct.video_url, ct.created_at,
-            u.id AS user_id, u.username,
+    `SELECT ct.id, ct.body, ct.link_url, ct.photo_url, ct.video_url, ct.created_at, ct.status,
+            u.id AS user_id, u.username, u.is_club,
             ROUND(AVG(r.rating)::numeric, 2)::float8 AS avg_rating,
             COUNT(r.id)::int AS rating_count
      FROM contributions ct
      JOIN users u ON u.id = ct.user_id
      LEFT JOIN contribution_ratings r ON r.contribution_id = ct.id
-     WHERE ct.case_id = $1
+     WHERE ct.case_id = $1 AND ct.status != 'rejected' AND (ct.status = 'visible' OR $2)
      GROUP BY ct.id, u.id
      ORDER BY ct.created_at DESC`,
-    [req.params.id]
+    [req.params.id, canSeePending]
   );
 
   let isMember = false;
@@ -77,7 +80,12 @@ router.get('/:id', optionalAuth, async (req, res) => {
     isMember = rows.length > 0;
   }
 
-  res.json({ case: caseRow, members, contributions, isMember });
+  const { rows: solveRequestRows } = await pool.query(
+    `SELECT * FROM solve_requests WHERE case_id = $1 AND status = 'pending'`,
+    [req.params.id]
+  );
+
+  res.json({ case: caseRow, members, contributions, isMember, solveRequest: solveRequestRows[0] || null });
 });
 
 router.post('/', requireAuth, async (req, res) => {
@@ -104,9 +112,10 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.post('/:id/join', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, status FROM cases WHERE id = $1', [req.params.id]);
+  const { rows } = await pool.query('SELECT id, status, solved_at FROM cases WHERE id = $1', [req.params.id]);
   const caseRow = rows[0];
   if (!caseRow || caseRow.status !== 'approved') return res.status(404).json({ error: 'Case not found' });
+  if (caseRow.solved_at) return res.status(400).json({ error: 'Case is closed' });
   await pool.query('INSERT INTO case_members (case_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
     req.params.id,
     req.user.id,
@@ -115,6 +124,8 @@ router.post('/:id/join', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id/join', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT solved_at FROM cases WHERE id = $1', [req.params.id]);
+  if (rows[0]?.solved_at) return res.status(400).json({ error: 'Case is closed' });
   await pool.query('DELETE FROM case_members WHERE case_id = $1 AND user_id = $2', [req.params.id, req.user.id]);
   res.json({ joined: false });
 });

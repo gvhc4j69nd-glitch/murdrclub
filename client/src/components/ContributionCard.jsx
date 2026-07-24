@@ -14,6 +14,8 @@ export default function ContributionCard({ contribution, currentUserId, onRate }
     <div className="contribution">
       <div className="contribution-meta">
         <span className="contribution-author">{c.username}</span>
+        {c.is_club && <span className="badge badge-club">Club</span>}
+        {c.status === 'pending' && <span className="badge badge-review">Awaiting review</span>}
         <span className="contribution-time">{new Date(c.created_at).toLocaleString()}</span>
       </div>
       {c.body && <div className="contribution-body">{c.body}</div>}

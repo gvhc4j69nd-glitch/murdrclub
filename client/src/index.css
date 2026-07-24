@@ -136,6 +136,9 @@ section.section .section-sub { color: var(--text-muted); margin-bottom: 24px; }
 .badge-pending { background: rgba(200,162,74,0.18); color: var(--gold); }
 .badge-approved { background: rgba(74,157,107,0.18); color: var(--ok); }
 .badge-rejected { background: rgba(163,35,35,0.18); color: var(--accent-bright); }
+.badge-club { background: rgba(200,162,74,0.18); color: var(--gold); }
+.badge-solved { background: rgba(74,157,107,0.18); color: var(--ok); }
+.badge-review { background: rgba(154,146,152,0.18); color: var(--text-muted); }
 
 /* ---------- Case detail ---------- */
 .case-header h1 { font-size: 2rem; margin-bottom: 8px; }

@@ -6,9 +6,12 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
+const cron = require('node-cron');
+
 const { init, pool } = require('./db/schema');
 const { JWT_SECRET } = require('./middleware/auth');
-const { getOrCreateDm, isCaseMember, saveMessage } = require('./lib/chat');
+const { getOrCreateDm, isCaseMember, isCaseSolved, saveMessage } = require('./lib/chat');
+const { runWeeklyResearch } = require('./lib/research');
 
 const authRoutes = require('./routes/auth');
 const regionsRoutes = require('./routes/regions');
@@ -17,6 +20,7 @@ const contributionsRoutes = require('./routes/contributions');
 const membersRoutes = require('./routes/members');
 const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
+const solveRequestsRoutes = require('./routes/solveRequests');
 
 process.on('unhandledRejection', err => {
   console.error('Unhandled rejection (process kept alive):', err);
@@ -32,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/regions', regionsRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api', contributionsRoutes);
+app.use('/api', solveRequestsRoutes);
 app.use('/api/members', membersRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
@@ -70,6 +75,7 @@ io.on('connection', socket => {
   socket.on('case:message', async ({ caseId, body }) => {
     if (!body?.trim()) return;
     if (!(await isCaseMember(caseId, user.id))) return socket.emit('chat:error', 'Join the hunt first');
+    if (await isCaseSolved(caseId)) return socket.emit('chat:error', 'This case is closed');
     const message = await saveMessage('case', caseId, user.id, body.trim());
     io.to(`case:${caseId}`).emit('case:message', { caseId, message });
   });
@@ -101,5 +107,14 @@ server.listen(PORT, async () => {
   } catch (err) {
     console.error('DB init failed:', err);
     process.exit(1);
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    cron.schedule('0 6 * * 1', () => {
+      runWeeklyResearch().catch(err => console.error('Weekly research run failed:', err.message));
+    });
+    console.log('Weekly case research scheduled (Mondays 06:00 UTC)');
+  } else {
+    console.log('ANTHROPIC_API_KEY not set — automated case research disabled');
   }
 });

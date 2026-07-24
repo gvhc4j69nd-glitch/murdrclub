@@ -6,6 +6,7 @@ import { REGIONS, regionName } from '../lib/regions';
 export default function AdminPage() {
   const { user } = useAuth();
   const [pending, setPending] = useState([]);
+  const [solveRequests, setSolveRequests] = useState([]);
   const [notAdmin, setNotAdmin] = useState(false);
   const [error, setError] = useState('');
   const [admins, setAdmins] = useState([]);
@@ -22,17 +23,33 @@ export default function AdminPage() {
       });
   }
 
+  function loadSolveRequests() {
+    api
+      .get('/admin/solve-requests')
+      .then(({ solveRequests }) => setSolveRequests(solveRequests))
+      .catch(() => {});
+  }
+
   function loadAdmins() {
     if (!user?.is_superadmin) return;
     api.get('/admin/region-admins').then(({ admins }) => setAdmins(admins)).catch(() => {});
   }
 
-  useEffect(() => { loadPending(); loadAdmins(); }, [user]);
+  useEffect(() => { loadPending(); loadSolveRequests(); loadAdmins(); }, [user]);
 
   async function review(caseId, action) {
     try {
       await api.post(`/admin/cases/${caseId}/${action}`, {});
       setPending(p => p.filter(c => c.id !== caseId));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function reviewSolveRequest(requestId, action) {
+    try {
+      await api.post(`/admin/solve-requests/${requestId}/${action}`, {});
+      setSolveRequests(r => r.filter(sr => sr.id !== requestId));
     } catch (err) {
       setError(err.message);
     }
@@ -83,6 +100,31 @@ export default function AdminPage() {
                 </div>
               </div>
               <p className="hint" style={{ marginTop: 6 }}>{c.summary}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!notAdmin && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ marginBottom: 10 }}>Solve requests pending review ({solveRequests.length})</h3>
+          {solveRequests.length === 0 && <div className="empty-state">Nothing waiting on review.</div>}
+          {solveRequests.map(sr => (
+            <div key={sr.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{sr.case_title}</div>
+                  <div className="case-meta">
+                    <span>{sr.region_name}</span>
+                    <span>Proposed by {sr.requested_by_username}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => reviewSolveRequest(sr.id, 'approve')}>Approve</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => reviewSolveRequest(sr.id, 'reject')}>Reject</button>
+                </div>
+              </div>
+              <p className="hint" style={{ marginTop: 6 }}>{sr.note}</p>
             </div>
           ))}
         </div>

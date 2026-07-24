@@ -7,6 +7,7 @@ import { regionName } from '../lib/regions';
 import ContributionForm from '../components/ContributionForm.jsx';
 import ContributionCard from '../components/ContributionCard.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
+import SolveRequestForm from '../components/SolveRequestForm.jsx';
 
 export default function CaseDetailPage() {
   const { id } = useParams();
@@ -57,6 +58,11 @@ export default function CaseDetailPage() {
     setData(d => ({ ...d, contributions: [contribution, ...d.contributions], case: { ...d.case, contribution_count: d.case.contribution_count + 1 } }));
   }
 
+  async function handleProposeSolved(note) {
+    const { solveRequest } = await api.post(`/cases/${id}/solve-requests`, { note });
+    setData(d => ({ ...d, solveRequest }));
+  }
+
   async function handleRate(contributionId, rating) {
     const result = await api.post(`/contributions/${contributionId}/rate`, { rating });
     setData(d => ({
@@ -75,12 +81,14 @@ export default function CaseDetailPage() {
   if (error) return <div className="container" style={{ padding: 40 }}><div className="error-banner">{error}</div></div>;
   if (!data) return <div className="loading">Loading…</div>;
 
-  const { case: c, members, contributions, isMember } = data;
+  const { case: c, members, contributions, isMember, solveRequest } = data;
+  const solved = !!c.solved_at;
 
   return (
     <div className="container" style={{ padding: '40px 20px' }}>
       <div className="case-header">
         <span className="badge badge-approved" style={{ marginBottom: 10, display: 'inline-block' }}>{regionName(c.region_key)}</span>
+        {solved && <span className="badge badge-solved" style={{ marginBottom: 10, marginLeft: 8, display: 'inline-block' }}>Solved</span>}
         <h1>{c.title}</h1>
         <div className="case-meta">
           {c.victim_name && <span>Victim: {c.victim_name}</span>}
@@ -96,13 +104,31 @@ export default function CaseDetailPage() {
             <p>{c.summary}</p>
           </div>
 
-          {user && (
-            <button className="btn btn-primary" style={{ marginBottom: 16 }} onClick={toggleMembership} disabled={busy}>
-              {isMember ? 'Leave the hunt' : 'Join the hunt'}
-            </button>
-          )}
+          {solved ? (
+            <div className="empty-state" style={{ marginBottom: 16 }}>
+              This case is closed and retained as a historical record — no new evidence, ratings, or chat.
+            </div>
+          ) : (
+            <>
+              {user && (
+                <button className="btn btn-primary" style={{ marginBottom: 16 }} onClick={toggleMembership} disabled={busy}>
+                  {isMember ? 'Leave the hunt' : 'Join the hunt'}
+                </button>
+              )}
 
-          {isMember && <ContributionForm onSubmit={handleContribute} />}
+              {isMember && <ContributionForm onSubmit={handleContribute} />}
+
+              {isMember && (
+                solveRequest ? (
+                  <div className="empty-state" style={{ marginBottom: 16 }}>
+                    Solve request submitted — awaiting admin review.
+                  </div>
+                ) : (
+                  <SolveRequestForm onSubmit={handleProposeSolved} />
+                )
+              )}
+            </>
+          )}
 
           <div className="card">
             <h3 style={{ marginBottom: 10 }}>Evidence & leads ({contributions.length})</h3>
@@ -126,7 +152,7 @@ export default function CaseDetailPage() {
             messages={chatMessages}
             currentUserId={user?.id}
             onSend={sendChat}
-            disabled={!isMember}
+            disabled={!isMember || solved}
             placeholder="Message the hunt group…"
           />
         </div>

@@ -41,6 +41,17 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
 - **Chat** — real-time one-to-one DMs and per-case group chat over Socket.io.
 - **Regional admins** — superadmins assign admins per region; those admins approve or
   reject new case suggestions submitted for their region before they go public.
+- **Club research** — when a case is approved, and again every Monday for every open
+  case, the server uses the Claude API's web search tool to look for new material and
+  files anything it finds as a contribution from the "MURD'R CLUB" system account.
+  Those land in a `pending` state and need a regional/super admin's approval (same
+  admin panel as case approvals) before they're visible on the case page. Requires an
+  `ANTHROPIC_API_KEY` env var — without it, research silently no-ops and the rest of
+  the app is unaffected.
+- **Solve requests** — a member on a case's hunt can propose it's solved with a written
+  explanation. A regional or super admin approves or rejects the closure. Once approved,
+  the case is locked (no new joins, contributions, ratings, or chat) but stays visible
+  and listed as a historical record — it is never deleted or hidden.
 
 ## Running locally
 
@@ -83,6 +94,7 @@ The server serves the built client from `client/dist` and answers the API under 
 1. Add a **Postgres** plugin to the Railway project — it injects `DATABASE_URL`
    automatically, which `server/db/schema.js` reads directly.
 2. Set `JWT_SECRET` as a service environment variable (anything long and random).
+   Optionally set `ANTHROPIC_API_KEY` to enable the weekly club research job.
 3. Point the service's start command at `server` the same way as `iberzo`'s `nixpacks.toml` /
    `railway.json` do — install both `client` and `server`, build the client, then
    `node index.js` from `server`.
