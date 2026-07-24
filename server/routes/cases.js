@@ -92,6 +92,15 @@ router.get('/:id', optionalAuth, async (req, res) => {
     [req.params.id]
   );
 
+  let myNote = '';
+  if (req.user) {
+    const { rows: noteRows } = await pool.query(
+      'SELECT body FROM case_notes WHERE case_id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    myNote = noteRows[0]?.body || '';
+  }
+
   res.json({
     case: caseRow,
     members,
@@ -99,6 +108,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
     isMember,
     solveRequest: solveRequestRows[0] || null,
     canModerate: canSeePending,
+    myNote,
   });
 });
 

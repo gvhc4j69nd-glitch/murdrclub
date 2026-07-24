@@ -131,6 +131,18 @@ async function init() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS case_notes (
+      id SERIAL PRIMARY KEY,
+      case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(case_id, user_id)
+    )
+  `);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cases_region_status ON cases(region_key, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contributions_case ON contributions(case_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ratings_contribution ON contribution_ratings(contribution_id)`);

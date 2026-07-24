@@ -9,6 +9,7 @@ import ContributionCard from '../components/ContributionCard.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
 import SolveRequestForm from '../components/SolveRequestForm.jsx';
 import Translatable from '../components/Translatable.jsx';
+import CaseNotes from '../components/CaseNotes.jsx';
 
 export default function CaseDetailPage() {
   const { id } = useParams();
@@ -97,7 +98,7 @@ export default function CaseDetailPage() {
   if (error) return <div className="container" style={{ padding: 40 }}><div className="error-banner">{error}</div></div>;
   if (!data) return <div className="loading">Loading…</div>;
 
-  const { case: c, members, contributions, isMember, solveRequest, canModerate } = data;
+  const { case: c, members, contributions, isMember, solveRequest, canModerate, myNote } = data;
   const solved = !!c.solved_at;
 
   return (
@@ -178,6 +179,12 @@ export default function CaseDetailPage() {
             disabled={!isMember || solved}
             placeholder="Message the hunt group…"
           />
+
+          {user && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <CaseNotes caseId={id} initialNote={myNote} />
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -57,6 +57,9 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
 - **Translation** — case summaries and evidence write-ups can be entered in any language;
   a "Translate to English" button under each translates it on demand via the Claude API.
   Requires `ANTHROPIC_API_KEY` and being logged in (each call costs a real API request).
+- **Personal notes** — any logged-in member can keep a private note per case, shown below
+  the group chat on the case page. Notes are scoped to that one case and visible only to
+  the member who wrote them — not to other members, region admins, or superadmins.
 
 ## Running locally
 
