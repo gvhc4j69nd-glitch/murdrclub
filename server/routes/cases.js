@@ -17,27 +17,34 @@ async function caseWithCounts(caseId) {
   return rows[0];
 }
 
+const PAGE_SIZE = 20;
+
 router.get('/', async (req, res) => {
   const { region } = req.query;
-  const { rows } = region
-    ? await pool.query(
-        `SELECT c.id, c.title, c.victim_name, c.region_key, c.location, c.date_occurred, c.created_at,
-                (SELECT COUNT(*) FROM case_members m WHERE m.case_id = c.id)::int AS member_count,
-                (SELECT COUNT(*) FROM contributions ct WHERE ct.case_id = c.id)::int AS contribution_count
-         FROM cases c
-         WHERE c.status = 'approved' AND c.region_key = $1
-         ORDER BY member_count DESC, c.created_at DESC`,
-        [region]
-      )
-    : await pool.query(
-        `SELECT c.id, c.title, c.victim_name, c.region_key, c.location, c.date_occurred, c.created_at,
-                (SELECT COUNT(*) FROM case_members m WHERE m.case_id = c.id)::int AS member_count,
-                (SELECT COUNT(*) FROM contributions ct WHERE ct.case_id = c.id)::int AS contribution_count
-         FROM cases c
-         WHERE c.status = 'approved'
-         ORDER BY member_count DESC, c.created_at DESC`
-      );
-  res.json({ cases: rows });
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const offset = (page - 1) * PAGE_SIZE;
+
+  const whereClause = region ? `WHERE c.status = 'approved' AND c.region_key = $1` : `WHERE c.status = 'approved'`;
+  const whereParams = region ? [region] : [];
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM cases c ${whereClause}`,
+    whereParams
+  );
+  const total = countRows[0].total;
+
+  const { rows } = await pool.query(
+    `SELECT c.id, c.title, c.victim_name, c.region_key, c.location, c.date_occurred, c.created_at,
+            (SELECT COUNT(*) FROM case_members m WHERE m.case_id = c.id)::int AS member_count,
+            (SELECT COUNT(*) FROM contributions ct WHERE ct.case_id = c.id)::int AS contribution_count
+     FROM cases c
+     ${whereClause}
+     ORDER BY member_count DESC, c.created_at DESC
+     LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
+    [...whereParams, PAGE_SIZE, offset]
+  );
+
+  res.json({ cases: rows, page, pageSize: PAGE_SIZE, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)) });
 });
 
 router.get('/:id', optionalAuth, async (req, res) => {

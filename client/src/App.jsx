@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import RegionsPage from './pages/RegionsPage.jsx';
 import RegionDetailPage from './pages/RegionDetailPage.jsx';
+import AllCasesPage from './pages/AllCasesPage.jsx';
 import CaseDetailPage from './pages/CaseDetailPage.jsx';
 import SubmitCasePage from './pages/SubmitCasePage.jsx';
 import MembersPage from './pages/MembersPage.jsx';
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/regions" element={<RegionsPage />} />
           <Route path="/regions/:key" element={<RegionDetailPage />} />
+          <Route path="/cases" element={<AllCasesPage />} />
           <Route path="/cases/:id" element={<CaseDetailPage />} />
           <Route path="/submit" element={<ProtectedRoute><SubmitCasePage /></ProtectedRoute>} />
           <Route path="/members" element={<MembersPage />} />

@@ -35,10 +35,10 @@ export default function HomePage() {
             <div className="num">{regions.length || 20}</div>
             <div className="label">Regions covered</div>
           </div>
-          <div className="stat-tile">
+          <Link to="/cases" className="stat-tile">
             <div className="num">{totalCases}</div>
             <div className="label">Active cases</div>
-          </div>
+          </Link>
           <div className="stat-tile">
             <div className="num">1–5</div>
             <div className="label">Member-rated evidence</div>

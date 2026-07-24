@@ -132,6 +132,8 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; letter-spac
 
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin: 48px 0; }
 .stat-tile { text-align: center; border: 1px solid var(--border); border-radius: 10px; padding: 20px 10px; background: var(--surface); }
+a.stat-tile { transition: border-color 0.15s, transform 0.15s; }
+a.stat-tile:hover { border-color: var(--accent); transform: translateY(-2px); }
 .stat-tile .num { font-family: var(--font-display); font-size: 2rem; color: var(--gold); }
 .stat-tile .label { color: var(--text-muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
 
@@ -148,6 +150,7 @@ section.section .section-sub { color: var(--text-muted); margin-bottom: 24px; }
 
 /* ---------- Region grid ---------- */
 .region-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.region-grid .card { margin-top: 0; }
 .region-card {
   border: 1px solid var(--border); border-radius: 10px; padding: 18px; background: var(--surface);
   transition: border-color 0.15s, transform 0.15s;
