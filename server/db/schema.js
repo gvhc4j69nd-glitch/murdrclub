@@ -138,11 +138,14 @@ async function init() {
       case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       body TEXT NOT NULL DEFAULT '',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(case_id, user_id)
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Notes used to be a single upserted row per (case, user); now each save
+  // is its own timestamped entry, so the old one-per-pair constraint has to go.
+  await pool.query(`ALTER TABLE case_notes DROP CONSTRAINT IF EXISTS case_notes_case_id_user_id_key`);
+  await pool.query(`ALTER TABLE case_notes DROP COLUMN IF EXISTS updated_at`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_case_notes_case_user ON case_notes(case_id, user_id, created_at DESC)`);
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cases_region_status ON cases(region_key, status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_contributions_case ON contributions(case_id)`);

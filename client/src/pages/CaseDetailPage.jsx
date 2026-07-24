@@ -99,7 +99,7 @@ export default function CaseDetailPage() {
   if (error) return <div className="container" style={{ padding: 40 }}><div className="error-banner">{error}</div></div>;
   if (!data) return <div className="loading">Loading…</div>;
 
-  const { case: c, members, contributions, isMember, solveRequest, canModerate, myNote } = data;
+  const { case: c, members, contributions, isMember, solveRequest, canModerate, myNotes } = data;
   const solved = !!c.solved_at;
 
   return (
@@ -187,7 +187,7 @@ export default function CaseDetailPage() {
 
           {user && (
             <div className="card" style={{ marginTop: 16 }}>
-              <CaseNotes caseId={id} initialNote={myNote} />
+              <CaseNotes caseId={id} notes={myNotes} />
             </div>
           )}
         </div>
