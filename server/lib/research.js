@@ -1,12 +1,5 @@
-const Anthropic = require('@anthropic-ai/sdk');
 const { pool } = require('../db/schema');
-
-let anthropic = null;
-function client() {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  if (!anthropic) anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return anthropic;
-}
+const { getAnthropicClient } = require('./anthropicClient');
 
 let clubUserId = null;
 async function getClubUserId() {
@@ -40,7 +33,7 @@ function daysBetweenRuns(missStreak) {
 // club contributions for a regional/super admin to review. Never throws —
 // callers (case approval, the weekly cron) must not go down with it.
 async function runResearchForCase(caseId) {
-  const anthropicClient = client();
+  const anthropicClient = getAnthropicClient();
   if (!anthropicClient) {
     console.log('Research skipped: ANTHROPIC_API_KEY not set');
     return;
@@ -113,7 +106,7 @@ If you find nothing new and credible, respond with an empty array: []`;
 }
 
 async function runWeeklyResearch() {
-  if (!client()) {
+  if (!getAnthropicClient()) {
     console.log('Weekly research skipped: ANTHROPIC_API_KEY not set');
     return;
   }

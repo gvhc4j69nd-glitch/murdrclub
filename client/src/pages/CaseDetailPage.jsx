@@ -8,6 +8,7 @@ import ContributionForm from '../components/ContributionForm.jsx';
 import ContributionCard from '../components/ContributionCard.jsx';
 import ChatPanel from '../components/ChatPanel.jsx';
 import SolveRequestForm from '../components/SolveRequestForm.jsx';
+import Translatable from '../components/Translatable.jsx';
 
 export default function CaseDetailPage() {
   const { id } = useParams();
@@ -116,7 +117,7 @@ export default function CaseDetailPage() {
       <div className="two-col" style={{ marginTop: 20 }}>
         <div>
           <div className="card" style={{ marginBottom: 16 }}>
-            <p>{c.summary}</p>
+            <Translatable text={c.summary} />
           </div>
 
           {solved ? (

@@ -54,6 +54,9 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
   explanation. A regional or super admin approves or rejects the closure. Once approved,
   the case is locked (no new joins, contributions, ratings, or chat) but stays visible
   and listed as a historical record — it is never deleted or hidden.
+- **Translation** — case summaries and evidence write-ups can be entered in any language;
+  a "Translate to English" button under each translates it on demand via the Claude API.
+  Requires `ANTHROPIC_API_KEY` and being logged in (each call costs a real API request).
 
 ## Running locally
 

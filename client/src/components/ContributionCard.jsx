@@ -1,4 +1,5 @@
 import RatingStars from './RatingStars.jsx';
+import Translatable from './Translatable.jsx';
 
 function youtubeEmbed(url) {
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/)([\w-]+)/);
@@ -24,7 +25,7 @@ export default function ContributionCard({ contribution, currentUserId, onRate, 
           </span>
         )}
       </div>
-      {c.body && <div className="contribution-body">{c.body}</div>}
+      <Translatable text={c.body} className="contribution-body" />
       <div className="contribution-media">
         {c.link_url && <a href={c.link_url} target="_blank" rel="noopener noreferrer">🔗 Source link</a>}
         {c.photo_url && <img src={c.photo_url} alt="Evidence" loading="lazy" />}

@@ -21,6 +21,7 @@ const membersRoutes = require('./routes/members');
 const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
 const solveRequestsRoutes = require('./routes/solveRequests');
+const translateRoutes = require('./routes/translate');
 
 process.on('unhandledRejection', err => {
   console.error('Unhandled rejection (process kept alive):', err);
@@ -37,6 +38,7 @@ app.use('/api/regions', regionsRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api', contributionsRoutes);
 app.use('/api', solveRequestsRoutes);
+app.use('/api', translateRoutes);
 app.use('/api/members', membersRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
