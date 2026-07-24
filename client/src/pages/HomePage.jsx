@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthContext.jsx';
+import CasesMap from '../components/CasesMap.jsx';
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -44,6 +45,10 @@ export default function HomePage() {
             <div className="label">Member-rated evidence</div>
           </div>
         </div>
+      </section>
+
+      <section className="section container" style={{ paddingTop: 0 }}>
+        <CasesMap />
       </section>
 
       <section className="section container">

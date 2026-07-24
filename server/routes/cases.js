@@ -47,6 +47,15 @@ router.get('/', async (req, res) => {
   res.json({ cases: rows, page, pageSize: PAGE_SIZE, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)) });
 });
 
+// Full, unpaginated set for the homepage map — every active case needs a pin.
+router.get('/pins', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, title, victim_name, region_key, location, map_address
+     FROM cases WHERE status = 'approved'`
+  );
+  res.json({ cases: rows });
+});
+
 router.get('/:id', optionalAuth, async (req, res) => {
   const caseRow = await caseWithCounts(req.params.id);
   if (!caseRow) return res.status(404).json({ error: 'Case not found' });

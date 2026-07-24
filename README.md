@@ -68,6 +68,13 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
   [Google Cloud Console](https://console.cloud.google.com/google/maps-apis), enable the
   Maps Embed API, and restrict it to your domain via HTTP referrer restrictions since it's
   visible in the page source.
+- **All-cases map** — the homepage, below the region/case-count stats, shows every active
+  case as a pin on an interactive, zoomed-out world map (`@googlemaps/js-api-loader` +
+  `@googlemaps/markerclusterer`), clustering nearby cases into a number until you zoom in.
+  Clicking a pin opens that case. Uses the same `VITE_GOOGLE_MAPS_API_KEY`, but also needs
+  the **Maps JavaScript API** and **Geocoding API** enabled (in addition to Maps Embed API)
+  in the Google Cloud Console — locations are geocoded client-side on each page load, not
+  stored, so no extra setup beyond enabling those two APIs.
 
 ## Running locally
 
