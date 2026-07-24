@@ -93,6 +93,10 @@ cd ../server && npm install && npm start
 ```
 
 The server serves the built client from `client/dist` and answers the API under `/api`.
+`GET /cases/:id` for an approved case is server-rendered with per-case
+title/description/Open Graph/Twitter Card tags (read live from the DB on
+every request, so it covers new and existing cases alike) — search engines
+and link-preview bots see real metadata instead of the generic SPA shell.
 
 ## Deploying (Railway)
 

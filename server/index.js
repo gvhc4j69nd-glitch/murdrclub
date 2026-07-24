@@ -12,6 +12,7 @@ const { init, pool } = require('./db/schema');
 const { JWT_SECRET } = require('./middleware/auth');
 const { getOrCreateDm, isCaseMember, isCaseSolved, saveMessage } = require('./lib/chat');
 const { runWeeklyResearch } = require('./lib/research');
+const { renderCaseHtml } = require('./lib/seo');
 
 const authRoutes = require('./routes/auth');
 const regionsRoutes = require('./routes/regions');
@@ -28,6 +29,7 @@ process.on('unhandledRejection', err => {
 });
 
 const app = express();
+app.set('trust proxy', 1); // Railway terminates TLS at the edge — needed so req.protocol reports https
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '2mb' }));
 
@@ -94,6 +96,27 @@ io.on('connection', socket => {
 const PORT = process.env.PORT || 4001;
 
 const clientDist = path.join(__dirname, '../client/dist');
+
+// Server-render per-case title/description/OG/Twitter tags for search
+// engines and link-preview bots, which mostly don't run the SPA's JS. Reads
+// live from the DB on every request, so newly created and already-existing
+// cases both get correct tags with no separate generation step.
+app.get('/cases/:id', async (req, res, next) => {
+  if (!/^\d+$/.test(req.params.id)) return next();
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, victim_name, summary FROM cases WHERE id = $1 AND status = 'approved'`,
+      [req.params.id]
+    );
+    if (!rows[0]) return next();
+    const canonicalUrl = `${req.protocol}://${req.get('host')}/cases/${req.params.id}`;
+    res.set('Content-Type', 'text/html').send(renderCaseHtml(clientDist, rows[0], canonicalUrl));
+  } catch (err) {
+    console.error('Case SEO render failed:', err.message);
+    next();
+  }
+});
+
 app.use(express.static(clientDist));
 app.get('{*path}', (req, res) => {
   if (!req.path.startsWith('/api') && !req.path.startsWith('/socket.io')) {
