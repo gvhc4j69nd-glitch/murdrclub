@@ -73,6 +73,21 @@ export default function CaseDetailPage() {
     }));
   }
 
+  async function handleModerate(contributionId, action) {
+    try {
+      await api.post(`/admin/contributions/${contributionId}/${action}`, {});
+      setData(d => ({
+        ...d,
+        contributions:
+          action === 'approve'
+            ? d.contributions.map(c => (c.id === contributionId ? { ...c, status: 'visible' } : c))
+            : d.contributions.filter(c => c.id !== contributionId),
+      }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   function sendChat(body) {
     const socket = getSocket();
     socket?.emit('case:message', { caseId: Number(id), body });
@@ -81,7 +96,7 @@ export default function CaseDetailPage() {
   if (error) return <div className="container" style={{ padding: 40 }}><div className="error-banner">{error}</div></div>;
   if (!data) return <div className="loading">Loading…</div>;
 
-  const { case: c, members, contributions, isMember, solveRequest } = data;
+  const { case: c, members, contributions, isMember, solveRequest, canModerate } = data;
   const solved = !!c.solved_at;
 
   return (
@@ -134,7 +149,14 @@ export default function CaseDetailPage() {
             <h3 style={{ marginBottom: 10 }}>Evidence & leads ({contributions.length})</h3>
             {contributions.length === 0 && <div className="empty-state">No contributions yet. Join the hunt and add the first one.</div>}
             {contributions.map(ct => (
-              <ContributionCard key={ct.id} contribution={ct} currentUserId={user?.id} onRate={handleRate} />
+              <ContributionCard
+                key={ct.id}
+                contribution={ct}
+                currentUserId={user?.id}
+                onRate={handleRate}
+                canModerate={canModerate}
+                onModerate={handleModerate}
+              />
             ))}
           </div>
         </div>

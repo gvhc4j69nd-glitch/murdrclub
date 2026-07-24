@@ -67,6 +67,41 @@ router.post('/cases/:id/reject', async (req, res) => {
   res.json({ case: updated[0] });
 });
 
+// Approve or reject a pending contribution (e.g. a club-filed research find).
+router.post('/contributions/:id/approve', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ct.*, c.region_key FROM contributions ct JOIN cases c ON c.id = ct.case_id WHERE ct.id = $1`,
+    [req.params.id]
+  );
+  const contribution = rows[0];
+  if (!contribution || contribution.status !== 'pending') return res.status(404).json({ error: 'Contribution not found' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, contribution.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE contributions SET status = 'visible' WHERE id = $1 RETURNING *`,
+    [req.params.id]
+  );
+  res.json({ contribution: updated[0] });
+});
+
+router.post('/contributions/:id/reject', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT ct.*, c.region_key FROM contributions ct JOIN cases c ON c.id = ct.case_id WHERE ct.id = $1`,
+    [req.params.id]
+  );
+  const contribution = rows[0];
+  if (!contribution || contribution.status !== 'pending') return res.status(404).json({ error: 'Contribution not found' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, contribution.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE contributions SET status = 'rejected' WHERE id = $1 RETURNING *`,
+    [req.params.id]
+  );
+  res.json({ contribution: updated[0] });
+});
+
 // Pending solve requests across the regions this admin covers.
 router.get('/solve-requests', async (req, res) => {
   if (req.adminRegions.length === 0) return res.json({ solveRequests: [] });

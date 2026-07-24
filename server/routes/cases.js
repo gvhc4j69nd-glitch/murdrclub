@@ -85,7 +85,14 @@ router.get('/:id', optionalAuth, async (req, res) => {
     [req.params.id]
   );
 
-  res.json({ case: caseRow, members, contributions, isMember, solveRequest: solveRequestRows[0] || null });
+  res.json({
+    case: caseRow,
+    members,
+    contributions,
+    isMember,
+    solveRequest: solveRequestRows[0] || null,
+    canModerate: canSeePending,
+  });
 });
 
 router.post('/', requireAuth, async (req, res) => {

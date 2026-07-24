@@ -5,7 +5,7 @@ function youtubeEmbed(url) {
   return m ? `https://www.youtube.com/embed/${m[1]}` : null;
 }
 
-export default function ContributionCard({ contribution, currentUserId, onRate }) {
+export default function ContributionCard({ contribution, currentUserId, onRate, canModerate, onModerate }) {
   const c = contribution;
   const embed = c.video_url ? youtubeEmbed(c.video_url) : null;
   const isAuthor = c.user_id === currentUserId;
@@ -17,6 +17,12 @@ export default function ContributionCard({ contribution, currentUserId, onRate }
         {c.is_club && <span className="badge badge-club">Club</span>}
         {c.status === 'pending' && <span className="badge badge-review">Awaiting review</span>}
         <span className="contribution-time">{new Date(c.created_at).toLocaleString()}</span>
+        {canModerate && c.status === 'pending' && (
+          <span style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            <button className="btn btn-sm btn-primary" onClick={() => onModerate(c.id, 'approve')}>Approve</button>
+            <button className="btn btn-sm btn-danger" onClick={() => onModerate(c.id, 'reject')}>Reject</button>
+          </span>
+        )}
       </div>
       {c.body && <div className="contribution-body">{c.body}</div>}
       <div className="contribution-media">
