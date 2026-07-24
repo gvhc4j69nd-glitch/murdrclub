@@ -10,6 +10,7 @@ import ChatPanel from '../components/ChatPanel.jsx';
 import SolveRequestForm from '../components/SolveRequestForm.jsx';
 import Translatable from '../components/Translatable.jsx';
 import CaseNotes from '../components/CaseNotes.jsx';
+import CaseMap from '../components/CaseMap.jsx';
 
 export default function CaseDetailPage() {
   const { id } = useParams();
@@ -113,6 +114,10 @@ export default function CaseDetailPage() {
           {c.date_occurred && <span>{c.date_occurred}</span>}
           <span>{c.member_count} on the hunt</span>
         </div>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <CaseMap address={c.map_address || c.location} />
       </div>
 
       <div className="two-col" style={{ marginTop: 20 }}>

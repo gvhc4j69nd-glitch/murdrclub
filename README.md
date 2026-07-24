@@ -60,6 +60,14 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
 - **Personal notes** — any logged-in member can keep a private note per case, shown below
   the group chat on the case page. Notes are scoped to that one case and visible only to
   the member who wrote them — not to other members, region admins, or superadmins.
+- **Case map** — case pages show an interactive Google Map pinned to the case's location.
+  Submitters can optionally give a more precise "exact address" separate from the general
+  location text; the map uses that if present, falling back to location. Requires a
+  `VITE_GOOGLE_MAPS_API_KEY` env var at **build time** (Maps Embed API) — without it the
+  map section just doesn't render, nothing else is affected. Get a key from the
+  [Google Cloud Console](https://console.cloud.google.com/google/maps-apis), enable the
+  Maps Embed API, and restrict it to your domain via HTTP referrer restrictions since it's
+  visible in the page source.
 
 ## Running locally
 
@@ -107,6 +115,9 @@ and link-preview bots see real metadata instead of the generic SPA shell.
    automatically, which `server/db/schema.js` reads directly.
 2. Set `JWT_SECRET` as a service environment variable (anything long and random).
    Optionally set `ANTHROPIC_API_KEY` to enable the weekly club research job.
+   Optionally set `VITE_GOOGLE_MAPS_API_KEY` to enable the case map — it's read at client
+   **build** time, so Railway must have it set before the build step runs, not just at
+   runtime.
 3. Point the service's start command at `server` the same way as `iberzo`'s `nixpacks.toml` /
    `railway.json` do — install both `client` and `server`, build the client, then
    `node index.js` from `server`.

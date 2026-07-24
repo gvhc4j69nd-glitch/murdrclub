@@ -113,7 +113,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 });
 
 router.post('/', requireAuth, async (req, res) => {
-  const { title, victim_name, region_key, location, date_occurred, summary } = req.body || {};
+  const { title, victim_name, region_key, location, date_occurred, summary, map_address } = req.body || {};
   if (!title || !region_key || !summary) {
     return res.status(400).json({ error: 'Title, region, and summary are required' });
   }
@@ -121,9 +121,9 @@ router.post('/', requireAuth, async (req, res) => {
   if (!regionRows[0]) return res.status(400).json({ error: 'Unknown region' });
 
   const { rows } = await pool.query(
-    `INSERT INTO cases (title, victim_name, region_key, location, date_occurred, summary, submitted_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [title, victim_name || '', region_key, location || '', date_occurred || '', summary, req.user.id]
+    `INSERT INTO cases (title, victim_name, region_key, location, date_occurred, summary, submitted_by, map_address)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [title, victim_name || '', region_key, location || '', date_occurred || '', summary, req.user.id, map_address || '']
   );
   const caseId = rows[0].id;
 

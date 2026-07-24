@@ -11,6 +11,7 @@ export default function SubmitCasePage() {
     victim_name: '',
     region_key: location.state?.region_key || REGIONS[0].key,
     location: '',
+    map_address: '',
     date_occurred: '',
     summary: '',
   });
@@ -73,6 +74,14 @@ export default function SubmitCasePage() {
         <div className="field">
           <label>Location</label>
           <input value={form.location} onChange={update('location')} placeholder="City, state/province, country" />
+        </div>
+        <div className="field">
+          <label>Exact address (optional)</label>
+          <input
+            value={form.map_address}
+            onChange={update('map_address')}
+            placeholder="Street address or intersection, for the map — leave blank to use Location"
+          />
         </div>
         <div className="field">
           <label>Date occurred</label>
