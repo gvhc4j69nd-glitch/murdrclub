@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { db } = require('../db/schema');
+const { pool } = require('../db/schema');
 const { signToken, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -17,21 +17,23 @@ router.post('/register', async (req, res) => {
   if (password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
-  const existing = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
-  if (existing) return res.status(409).json({ error: 'Username or email already taken' });
+  const { rows: existing } = await pool.query('SELECT id FROM users WHERE username = $1 OR email = $2', [username, email]);
+  if (existing[0]) return res.status(409).json({ error: 'Username or email already taken' });
 
   const password_hash = await bcrypt.hash(password, 10);
-  const result = db
-    .prepare('INSERT INTO users (username, email, password_hash, bio) VALUES (?, ?, ?, ?)')
-    .run(username, email, password_hash, bio || '');
-  const user = db.prepare('SELECT id, username, email, bio, is_superadmin FROM users WHERE id = ?').get(result.lastInsertRowid);
+  const { rows } = await pool.query(
+    `INSERT INTO users (username, email, password_hash, bio) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [username, email, password_hash, bio || '']
+  );
+  const user = rows[0];
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
-  const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username);
+  const { rows } = await pool.query('SELECT * FROM users WHERE username = $1 OR email = $1', [username]);
+  const user = rows[0];
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });

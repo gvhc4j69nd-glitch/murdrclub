@@ -6,7 +6,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
-const { init, db } = require('./db/schema');
+const { init, pool } = require('./db/schema');
 const { JWT_SECRET } = require('./middleware/auth');
 const { getOrCreateDm, isCaseMember, saveMessage } = require('./lib/chat');
 
@@ -21,8 +21,6 @@ const adminRoutes = require('./routes/admin');
 process.on('unhandledRejection', err => {
   console.error('Unhandled rejection (process kept alive):', err);
 });
-
-init();
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -41,14 +39,14 @@ app.use('/api/admin', adminRoutes);
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true } });
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('Unauthorized'));
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(payload.id);
-    if (!user) return next(new Error('Unauthorized'));
-    socket.user = user;
+    const { rows } = await pool.query('SELECT id, username FROM users WHERE id = $1', [payload.id]);
+    if (!rows[0]) return next(new Error('Unauthorized'));
+    socket.user = rows[0];
     next();
   } catch {
     next(new Error('Invalid token'));
@@ -60,8 +58,8 @@ io.on('connection', socket => {
   socket.join(`user:${user.id}`);
 
   // Join a case's group chat room — only allowed once you've joined its hunt.
-  socket.on('case:join', ({ caseId }) => {
-    if (!isCaseMember(caseId, user.id)) return socket.emit('chat:error', 'Join the hunt first');
+  socket.on('case:join', async ({ caseId }) => {
+    if (!(await isCaseMember(caseId, user.id))) return socket.emit('chat:error', 'Join the hunt first');
     socket.join(`case:${caseId}`);
   });
 
@@ -69,18 +67,18 @@ io.on('connection', socket => {
     socket.leave(`case:${caseId}`);
   });
 
-  socket.on('case:message', ({ caseId, body }) => {
+  socket.on('case:message', async ({ caseId, body }) => {
     if (!body?.trim()) return;
-    if (!isCaseMember(caseId, user.id)) return socket.emit('chat:error', 'Join the hunt first');
-    const message = saveMessage('case', caseId, user.id, body.trim());
+    if (!(await isCaseMember(caseId, user.id))) return socket.emit('chat:error', 'Join the hunt first');
+    const message = await saveMessage('case', caseId, user.id, body.trim());
     io.to(`case:${caseId}`).emit('case:message', { caseId, message });
   });
 
-  socket.on('dm:message', ({ toUserId, body }) => {
+  socket.on('dm:message', async ({ toUserId, body }) => {
     if (!body?.trim() || !toUserId) return;
     if (Number(toUserId) === user.id) return;
-    const convo = getOrCreateDm(user.id, Number(toUserId));
-    const message = saveMessage('dm', convo.id, user.id, body.trim());
+    const convo = await getOrCreateDm(user.id, Number(toUserId));
+    const message = await saveMessage('dm', convo.id, user.id, body.trim());
     io.to(`user:${user.id}`).to(`user:${toUserId}`).emit('dm:message', { conversationId: convo.id, message });
   });
 });
@@ -95,6 +93,13 @@ app.get('{*path}', (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`murdrclub server running on port ${PORT}`);
+  try {
+    await init();
+    console.log('DB ready');
+  } catch (err) {
+    console.error('DB init failed:', err);
+    process.exit(1);
+  }
 });

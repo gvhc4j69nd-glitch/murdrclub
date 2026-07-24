@@ -11,7 +11,7 @@ Connect with fellow investigators, investigate a case, and make a difference.
 
 - **Client:** React + Vite, `react-router-dom`, `socket.io-client`
 - **Server:** Node.js + Express + Socket.io
-- **Database:** SQLite via `better-sqlite3`
+- **Database:** Postgres via `pg`
 - **Auth:** JWT + bcrypt
 
 ## Structure
@@ -19,8 +19,8 @@ Connect with fellow investigators, investigate a case, and make a difference.
 ```
 murdrclub/
   client/     React + Vite frontend
-  server/     Express/Socket.io API + SQLite database
-    db/       schema + the 20 seeded regions
+  server/     Express/Socket.io API + Postgres database
+    db/       schema (auto-migrates on boot) + the 20 seeded regions
     routes/   auth, regions, cases, contributions, members, chat, admin
 ```
 
@@ -44,11 +44,21 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
 
 ## Running locally
 
+You need a Postgres database. Quickest way with Docker:
+
+```bash
+docker run -d --name murdrclub-db -e POSTGRES_PASSWORD=murdrclub -e POSTGRES_DB=murdrclub -p 5432:5432 postgres:16
+```
+
+Then:
+
 ```bash
 # server
 cd server
 npm install
-npm run dev        # http://localhost:4001
+echo 'DATABASE_URL=postgres://postgres:murdrclub@localhost:5432/murdrclub' > .env
+echo 'JWT_SECRET=dev-secret-change-me' >> .env
+npm run dev        # http://localhost:4001 — creates tables and seeds regions on first boot
 
 # client (separate terminal)
 cd client
@@ -56,8 +66,8 @@ npm install
 npm run dev         # http://localhost:5174, proxies /api and /socket.io to :4001
 ```
 
-Set `JWT_SECRET` in `server/.env` for anything beyond local testing. `DB_PATH` overrides
-where the SQLite file is written (defaults to `server/db/murdrclub.db`).
+`server/db/schema.js` runs its `CREATE TABLE IF NOT EXISTS` migrations automatically every
+time the server starts, so there's no separate migration step.
 
 ## Production build
 
@@ -67,3 +77,14 @@ cd ../server && npm install && npm start
 ```
 
 The server serves the built client from `client/dist` and answers the API under `/api`.
+
+## Deploying (Railway)
+
+1. Add a **Postgres** plugin to the Railway project — it injects `DATABASE_URL`
+   automatically, which `server/db/schema.js` reads directly.
+2. Set `JWT_SECRET` as a service environment variable (anything long and random).
+3. Point the service's start command at `server` the same way as `iberzo`'s `nixpacks.toml` /
+   `railway.json` do — install both `client` and `server`, build the client, then
+   `node index.js` from `server`.
+4. On first boot the server creates all tables and seeds the 20 regions itself — no manual
+   migration or seed step needed.
