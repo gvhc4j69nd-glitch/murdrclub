@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import NavBar from './components/NavBar.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import ScrollToTop from './components/ScrollToTop.jsx';
 
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -18,6 +19,7 @@ import AdminPage from './pages/AdminPage.jsx';
 export default function App() {
   return (
     <>
+      <ScrollToTop />
       <NavBar />
       <main style={{ flex: 1 }}>
         <Routes>
