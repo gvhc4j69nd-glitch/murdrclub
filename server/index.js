@@ -12,6 +12,7 @@ const { init, pool } = require('./db/schema');
 const { JWT_SECRET } = require('./middleware/auth');
 const { getOrCreateDm, isCaseMember, isCaseSolved, saveMessage } = require('./lib/chat');
 const { runWeeklyResearch } = require('./lib/research');
+const { runWeeklyAnalysis } = require('./lib/analysis');
 const { renderCaseHtml } = require('./lib/seo');
 
 const authRoutes = require('./routes/auth');
@@ -137,11 +138,12 @@ server.listen(PORT, async () => {
   }
 
   if (process.env.ANTHROPIC_API_KEY) {
-    cron.schedule('0 6 * * 1', () => {
-      runWeeklyResearch().catch(err => console.error('Weekly research run failed:', err.message));
+    cron.schedule('0 6 * * 1', async () => {
+      await runWeeklyResearch().catch(err => console.error('Weekly research run failed:', err.message));
+      await runWeeklyAnalysis().catch(err => console.error('Weekly analysis run failed:', err.message));
     });
-    console.log('Weekly case research scheduled (Mondays 06:00 UTC)');
+    console.log('Weekly case research + analysis scheduled (Mondays 06:00 UTC)');
   } else {
-    console.log('ANTHROPIC_API_KEY not set — automated case research disabled');
+    console.log('ANTHROPIC_API_KEY not set — automated case research/analysis disabled');
   }
 });

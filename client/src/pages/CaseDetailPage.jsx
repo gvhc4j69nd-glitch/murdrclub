@@ -91,6 +91,15 @@ export default function CaseDetailPage() {
     }
   }
 
+  async function handleAnalysisModerate(action) {
+    try {
+      const { case: updated } = await api.post(`/admin/cases/${id}/analysis/${action}`, {});
+      setData(d => ({ ...d, case: { ...d.case, ai_analysis_status: updated.ai_analysis_status } }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   function sendChat(body) {
     const socket = getSocket();
     socket?.emit('case:message', { caseId: Number(id), body });
@@ -125,6 +134,25 @@ export default function CaseDetailPage() {
           <div className="card" style={{ marginBottom: 16 }}>
             <Translatable text={c.summary} />
           </div>
+
+          {c.ai_analysis && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0 }}>What Claude thinks</h3>
+                {c.ai_analysis_status === 'pending' && <span className="badge badge-review">Awaiting review</span>}
+              </div>
+              <p className="hint" style={{ marginBottom: 10 }}>
+                AI-generated summary of the evidence submitted so far — a starting point for discussion, not a verdict.
+              </p>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{c.ai_analysis}</div>
+              {canModerate && c.ai_analysis_status === 'pending' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => handleAnalysisModerate('approve')}>Approve</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => handleAnalysisModerate('reject')}>Reject</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {solved ? (
             <div className="empty-state" style={{ marginBottom: 16 }}>

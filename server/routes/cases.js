@@ -73,6 +73,12 @@ router.get('/:id', optionalAuth, async (req, res) => {
   const canSeePending =
     !!req.user && (req.user.is_superadmin || (await isRegionAdmin(req.user.id, caseRow.region_key)));
 
+  // AI analysis is speculative and unreviewed until an admin approves it —
+  // never send it to a non-admin viewer while it's pending/rejected.
+  if (caseRow.ai_analysis_status !== 'approved' && !canSeePending) {
+    caseRow.ai_analysis = '';
+  }
+
   const { rows: contributions } = await pool.query(
     `SELECT ct.id, ct.body, ct.link_url, ct.photo_url, ct.video_url, ct.created_at, ct.status,
             u.id AS user_id, u.username, u.is_club,

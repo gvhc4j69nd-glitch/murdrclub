@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db/schema');
 const { requireAuth, isRegionAdmin } = require('../middleware/auth');
 const { runResearchForCase } = require('../lib/research');
+const { runAnalysisForCase } = require('../lib/analysis');
 
 const router = express.Router();
 
@@ -50,6 +51,7 @@ router.post('/cases/:id/approve', async (req, res) => {
     [req.user.id, req.body?.note || '', req.params.id]
   );
   runResearchForCase(updated[0].id).catch(err => console.error('Research kickoff failed:', err.message));
+  runAnalysisForCase(updated[0].id).catch(err => console.error('Analysis kickoff failed:', err.message));
   res.json({ case: updated[0] });
 });
 
@@ -100,6 +102,35 @@ router.post('/contributions/:id/reject', async (req, res) => {
     [req.params.id]
   );
   res.json({ contribution: updated[0] });
+});
+
+// Approve or reject a case's pending AI analysis before it's shown publicly.
+router.post('/cases/:id/analysis/approve', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
+  const caseRow = rows[0];
+  if (!caseRow || caseRow.ai_analysis_status !== 'pending') return res.status(404).json({ error: 'No pending analysis' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, caseRow.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE cases SET ai_analysis_status = 'approved' WHERE id = $1 RETURNING *`,
+    [req.params.id]
+  );
+  res.json({ case: updated[0] });
+});
+
+router.post('/cases/:id/analysis/reject', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
+  const caseRow = rows[0];
+  if (!caseRow || caseRow.ai_analysis_status !== 'pending') return res.status(404).json({ error: 'No pending analysis' });
+  if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, caseRow.region_key))) {
+    return res.status(403).json({ error: 'Not an admin for this region' });
+  }
+  const { rows: updated } = await pool.query(
+    `UPDATE cases SET ai_analysis_status = 'rejected' WHERE id = $1 RETURNING *`,
+    [req.params.id]
+  );
+  res.json({ case: updated[0] });
 });
 
 // Pending solve requests across the regions this admin covers.

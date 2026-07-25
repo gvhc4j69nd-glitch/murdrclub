@@ -50,6 +50,14 @@ Africa, Middle East, India, Asia, Australia — 20 in total.
   every 4 weeks after 4 — and reset to weekly the moment something new turns up.
   Requires an `ANTHROPIC_API_KEY` env var — without it, research silently no-ops and
   the rest of the app is unaffected.
+- **"What Claude thinks"** — alongside club research, the same weekly job (and case
+  approval) asks Claude to synthesize a short analysis of the case from its currently
+  *visible* evidence and leads — no web search, just reasoning over what's already been
+  submitted. Skips a case entirely if nothing new has come in since the last analysis.
+  Explicitly instructed not to accuse or name any living person. Lands as `pending`,
+  same admin review gate as club contributions, and is never sent to non-admin viewers
+  until approved — this is AI speculation about a real unsolved case, so it needs a
+  human check before anyone else sees it.
 - **Solve requests** — a member on a case's hunt can propose it's solved with a written
   explanation. A regional or super admin approves or rejects the closure. Once approved,
   the case is locked (no new joins, contributions, ratings, or chat) but stays visible
