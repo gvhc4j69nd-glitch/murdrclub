@@ -12,6 +12,9 @@ export default function AdminPage() {
   const [admins, setAdmins] = useState([]);
   const [assignForm, setAssignForm] = useState({ username: '', region_key: REGIONS[0].key });
   const [assignError, setAssignError] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
 
   function loadPending() {
     api
@@ -72,6 +75,21 @@ export default function AdminPage() {
     loadAdmins();
   }
 
+  async function importFromWikipedia() {
+    setImportBusy(true);
+    setImportError('');
+    setImportResult(null);
+    try {
+      const result = await api.post('/admin/import/wikipedia', { limit: 50 });
+      setImportResult(result);
+      loadPending();
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   return (
     <div className="container" style={{ padding: '40px 20px' }}>
       <h1 style={{ marginBottom: 20 }}>Admin</h1>
@@ -127,6 +145,29 @@ export default function AdminPage() {
               <p className="hint" style={{ marginTop: 6 }}>{sr.note}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {user?.is_superadmin && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <h3 style={{ marginBottom: 6 }}>Import cases from Wikipedia</h3>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            Pulls the most recent 50 cases from Wikipedia's "List of unsolved murders" that map to one
+            of the site's regions (skips ones that don't, e.g. Latin America — no matching region yet).
+            Each lands as a pending case suggestion with a sourced link, same as any other submission.
+            Running it again only adds cases it hasn't imported before.
+          </p>
+          {importError && <div className="error-banner">{importError}</div>}
+          <button className="btn btn-sm btn-primary" onClick={importFromWikipedia} disabled={importBusy}>
+            {importBusy ? 'Importing… this can take a minute' : 'Import from Wikipedia'}
+          </button>
+          {importResult && (
+            <p className="hint" style={{ marginTop: 10 }}>
+              Imported {importResult.imported.length}, skipped {importResult.skippedNoRegion} with no matching
+              region, {importResult.duplicates} already imported. Scanned {importResult.scanned} candidates.
+              New ones are in the pending queue above.
+            </p>
+          )}
         </div>
       )}
 

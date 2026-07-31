@@ -64,6 +64,7 @@ async function init() {
   await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS ai_analysis TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS ai_analysis_status TEXT NOT NULL DEFAULT 'none'`);
   await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS ai_analysis_updated_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS wikipedia_title TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS case_members (

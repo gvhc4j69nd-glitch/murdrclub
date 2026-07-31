@@ -3,6 +3,7 @@ const { pool } = require('../db/schema');
 const { requireAuth, isRegionAdmin } = require('../middleware/auth');
 const { runResearchForCase } = require('../lib/research');
 const { runAnalysisForCase } = require('../lib/analysis');
+const { importFromWikipedia } = require('../lib/wikidataImport');
 
 const router = express.Router();
 
@@ -182,6 +183,20 @@ router.post('/solve-requests/:id/reject', async (req, res) => {
     [req.user.id, req.body?.note || '', req.params.id]
   );
   res.json({ solveRequest: updated[0] });
+});
+
+// Bulk-import recent cases from Wikipedia's curated unsolved-murders list
+// (superadmin only — spans every region, creates content across the site).
+router.post('/import/wikipedia', async (req, res) => {
+  if (!req.user.is_superadmin) return res.status(403).json({ error: 'Superadmin access required' });
+  try {
+    const limit = Number(req.body?.limit) || 50;
+    const results = await importFromWikipedia(limit);
+    res.json(results);
+  } catch (err) {
+    console.error('Wikipedia import failed:', err.message);
+    res.status(502).json({ error: err.message });
+  }
 });
 
 // --- Superadmin: manage who administers which region ---
