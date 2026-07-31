@@ -40,6 +40,32 @@ router.get('/pending', async (req, res) => {
   res.json({ cases: rows });
 });
 
+// Pending updates to already-approved cases across the regions this admin
+// covers — AI analyses and club contributions still awaiting review. Both
+// now auto-publish (see server/lib/analysis.js and server/lib/research.js),
+// so this stays empty in the common case; it exists as a catch-all in case
+// something is ever generated without auto-approval.
+router.get('/pending-updates', async (req, res) => {
+  if (req.adminRegions.length === 0) return res.json({ analyses: [], contributions: [] });
+  const { rows: analyses } = await pool.query(
+    `SELECT id, title, region_key, ai_analysis, ai_analysis_updated_at
+     FROM cases
+     WHERE ai_analysis_status = 'pending' AND region_key = ANY($1::text[])
+     ORDER BY ai_analysis_updated_at ASC`,
+    [req.adminRegions]
+  );
+  const { rows: contributions } = await pool.query(
+    `SELECT ct.*, c.title AS case_title, c.region_key, u.username, u.is_club
+     FROM contributions ct
+     JOIN cases c ON c.id = ct.case_id
+     JOIN users u ON u.id = ct.user_id
+     WHERE ct.status = 'pending' AND c.region_key = ANY($1::text[])
+     ORDER BY ct.created_at ASC`,
+    [req.adminRegions]
+  );
+  res.json({ analyses, contributions });
+});
+
 router.post('/cases/:id/approve', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
   const caseRow = rows[0];
