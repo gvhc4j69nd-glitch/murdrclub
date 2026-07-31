@@ -19,6 +19,9 @@ export const REGIONS = [
   { key: 'india', name: 'India' },
   { key: 'asia', name: 'Asia' },
   { key: 'australia', name: 'Australia' },
+  { key: 'central-america', name: 'Central America' },
+  { key: 'south-america', name: 'South America' },
+  { key: 'caribbean', name: 'Caribbean' },
 ];
 
 export function regionName(key) {

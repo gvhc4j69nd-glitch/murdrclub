@@ -14,8 +14,8 @@ const DATE_RE = new RegExp(`\\b(\\d{1,2})\\s+(${MONTHS.join('|')})\\s+(\\d{4})\\
 // sparse to rely on (most lack a date/location property entirely) — dates
 // and locations are parsed from the Wikipedia list article's own prose
 // instead, which reliably has both. The app's region list doesn't cover the
-// whole world (no Latin America, for instance), so a candidate with no
-// keyword match is skipped rather than guessed at.
+// whole world (no Canada, for instance), so a candidate with no keyword
+// match is skipped rather than guessed at.
 const REGION_KEYWORDS = {
   'us-ne': ['New York', 'New Jersey', 'Pennsylvania', 'Massachusetts', 'Connecticut', 'Maine', 'Vermont', 'New Hampshire', 'Rhode Island'],
   'us-se': ['Florida', 'Georgia,', 'Alabama', 'Mississippi', 'Tennessee', 'South Carolina', 'North Carolina', 'Virginia', 'Kentucky', 'Louisiana', 'Arkansas'],
@@ -37,6 +37,9 @@ const REGION_KEYWORDS = {
   india: ['India', 'Delhi', 'Mumbai'],
   asia: ['China', 'Japan', 'South Korea', 'Philippines', 'Thailand', 'Vietnam', 'Indonesia', 'Pakistan', 'Malaysia', 'Myanmar', 'Burma', 'Sagaing'],
   australia: ['Australia', 'New Zealand'],
+  'central-america': ['Mexico', 'Oaxaca', 'Chihuahua', 'Veracruz', 'Tamaulipas', 'Nuevo Laredo', 'Mexico City', 'Guatemala', 'Belize', 'Honduras', 'El Salvador', 'Nicaragua', 'Costa Rica', 'Panama', 'Colón', 'Cabo San Lucas', 'Baja California'],
+  'south-america': ['Brazil', 'São Paulo', 'Rio de Janeiro', 'Pará', 'Belém', 'Argentina', 'Venezuela', 'Colombia', 'Cartagena', 'Ecuador', 'Peru', 'Chile', 'Bolivia', 'Paraguay', 'Uruguay', 'Guyana', 'Suriname', 'Bogotá', 'Caracas'],
+  caribbean: ['Puerto Rico', 'Jamaica', 'Montego Bay', 'Cuba', 'Haiti', 'Dominican Republic', 'Trinidad and Tobago', 'Bahamas', 'Barbados'],
 };
 
 function escapeRegExp(str) {
