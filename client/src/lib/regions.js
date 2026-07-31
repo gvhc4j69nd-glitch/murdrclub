@@ -4,6 +4,7 @@ export const REGIONS = [
   { key: 'us-mw', name: 'Midwest US' },
   { key: 'us-sw', name: 'Southwest US' },
   { key: 'us-w', name: 'West US' },
+  { key: 'canada', name: 'Canada' },
   { key: 'uk', name: 'United Kingdom' },
   { key: 'france', name: 'France' },
   { key: 'iberia', name: 'Portugal / Spain' },

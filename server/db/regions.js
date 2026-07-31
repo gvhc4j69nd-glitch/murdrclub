@@ -1,10 +1,11 @@
-// The 20 regions the club organizes unsolved murder cases by.
+// The regions the club organizes unsolved murder cases by.
 const REGIONS = [
   { key: 'us-ne', name: 'Northeast US' },
   { key: 'us-se', name: 'Southeast US' },
   { key: 'us-mw', name: 'Midwest US' },
   { key: 'us-sw', name: 'Southwest US' },
   { key: 'us-w', name: 'West US' },
+  { key: 'canada', name: 'Canada' },
   { key: 'uk', name: 'United Kingdom' },
   { key: 'france', name: 'France' },
   { key: 'iberia', name: 'Portugal / Spain' },
