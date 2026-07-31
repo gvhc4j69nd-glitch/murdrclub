@@ -125,6 +125,18 @@ title/description/Open Graph/Twitter Card tags (read live from the DB on
 every request, so it covers new and existing cases alike) — search engines
 and link-preview bots see real metadata instead of the generic SPA shell.
 
+### SEO
+
+- `client/index.html` carries the site-wide title/description/Open Graph/Twitter Card
+  tags (used for every page except case pages, which get their own via `server/lib/seo.js`).
+- `client/public/og-image.png` (1200×630) is the shared link-preview image, served at
+  `/og-image.png`.
+- `client/public/robots.txt` allows crawling of everything except the auth-gated pages
+  (`/admin`, `/messages`, `/login`, `/register`) and points to `/sitemap.xml`.
+- `GET /sitemap.xml` (`server/lib/sitemap.js`) is generated live from the DB — the static
+  pages, one entry per region, and one per **approved** case (matching what `GET /cases/:id`
+  actually serves; pending/rejected cases are left out).
+
 ## Deploying (Railway)
 
 1. Add a **Postgres** plugin to the Railway project — it injects `DATABASE_URL`

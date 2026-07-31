@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /messages
+Disallow: /login
+Disallow: /register
+
+Sitemap: https://murdrclub.com/sitemap.xml

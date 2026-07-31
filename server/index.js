@@ -14,6 +14,7 @@ const { getOrCreateDm, isCaseMember, isCaseSolved, saveMessage } = require('./li
 const { runWeeklyResearch } = require('./lib/research');
 const { runWeeklyAnalysis } = require('./lib/analysis');
 const { renderCaseHtml } = require('./lib/seo');
+const { renderSitemap } = require('./lib/sitemap');
 
 const authRoutes = require('./routes/auth');
 const regionsRoutes = require('./routes/regions');
@@ -117,6 +118,16 @@ app.get('/cases/:id', async (req, res, next) => {
   } catch (err) {
     console.error('Case SEO render failed:', err.message);
     next();
+  }
+});
+
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const origin = `${req.protocol}://${req.get('host')}`;
+    res.set('Content-Type', 'application/xml').send(await renderSitemap(origin));
+  } catch (err) {
+    console.error('Sitemap render failed:', err.message);
+    res.status(500).end();
   }
 });
 

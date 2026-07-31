@@ -27,27 +27,38 @@ function summarize(text, maxLen = 200) {
 function renderCaseHtml(clientDist, caseRow, canonicalUrl) {
   const title = `${caseRow.title}${caseRow.victim_name ? ` — ${caseRow.victim_name}` : ''} | MURD'R CLUB`;
   const description = summarize(caseRow.summary);
+  const imageUrl = `${new URL(canonicalUrl).origin}/og-image.png`;
   const t = escapeHtml(title);
   const d = escapeHtml(description);
   const u = escapeHtml(canonicalUrl);
+  const img = escapeHtml(imageUrl);
 
   const meta = `
     <title>${t}</title>
     <meta name="description" content="${d}" />
+    <meta name="robots" content="index, follow" />
     <link rel="canonical" href="${u}" />
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="MURD'R CLUB" />
     <meta property="og:title" content="${t}" />
     <meta property="og:description" content="${d}" />
     <meta property="og:url" content="${u}" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="${img}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${t}" />
     <meta name="twitter:description" content="${d}" />
+    <meta name="twitter:image" content="${img}" />
   `;
 
   return readIndexHtml(clientDist)
     .replace(/<title>.*?<\/title>\s*/i, '')
     .replace(/<meta name="description"[^>]*>\s*/i, '')
+    .replace(/<meta name="robots"[^>]*>\s*/i, '')
+    .replace(/<link rel="canonical"[^>]*>\s*/i, '')
+    .replace(/<meta property="og:[^>]*>\s*/gi, '')
+    .replace(/<meta name="twitter:[^>]*>\s*/gi, '')
     .replace('</head>', `${meta}\n  </head>`);
 }
 
