@@ -18,18 +18,45 @@ async function caseWithCounts(caseId) {
 }
 
 const PAGE_SIZE = 20;
+const SEARCHABLE_FIELDS = ['c.title', 'c.victim_name', 'c.location', 'c.summary', 'c.keywords'];
+
+// Every typed word must appear somewhere across the searchable fields (not
+// necessarily the same field), each as a case-insensitive substring match.
+// Plain ILIKE rather than full-text search — the case count here is small
+// enough (low hundreds) that a sequential scan is effectively instant, and
+// substring matching is simpler to reason about and forgiving of partial
+// words, which suits a live search box better than word-stemmed matching.
+function buildSearchClause(q, params) {
+  const words = q.trim().split(/\s+/).filter(Boolean).slice(0, 8);
+  return words
+    .map(word => {
+      params.push(`%${word}%`);
+      const idx = params.length;
+      return `(${SEARCHABLE_FIELDS.map(f => `${f} ILIKE $${idx}`).join(' OR ')})`;
+    })
+    .join(' AND ');
+}
 
 router.get('/', async (req, res) => {
-  const { region } = req.query;
+  const { region, q } = req.query;
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const offset = (page - 1) * PAGE_SIZE;
 
-  const whereClause = region ? `WHERE c.status = 'approved' AND c.region_key = $1` : `WHERE c.status = 'approved'`;
-  const whereParams = region ? [region] : [];
+  const conditions = [`c.status = 'approved'`];
+  const params = [];
+  if (region) {
+    params.push(region);
+    conditions.push(`c.region_key = $${params.length}`);
+  }
+  if (q && q.trim()) {
+    const searchClause = buildSearchClause(q, params);
+    if (searchClause) conditions.push(searchClause);
+  }
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   const { rows: countRows } = await pool.query(
     `SELECT COUNT(*)::int AS total FROM cases c ${whereClause}`,
-    whereParams
+    params
   );
   const total = countRows[0].total;
 
@@ -40,11 +67,11 @@ router.get('/', async (req, res) => {
      FROM cases c
      ${whereClause}
      ORDER BY member_count DESC, c.created_at DESC
-     LIMIT $${whereParams.length + 1} OFFSET $${whereParams.length + 2}`,
-    [...whereParams, PAGE_SIZE, offset]
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, PAGE_SIZE, offset]
   );
 
-  res.json({ cases: rows, page, pageSize: PAGE_SIZE, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)) });
+  res.json({ cases: rows, page, pageSize: PAGE_SIZE, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)), q: q || '' });
 });
 
 // Full, unpaginated set for the homepage map — every active case needs a pin.

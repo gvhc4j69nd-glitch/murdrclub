@@ -3,6 +3,7 @@ const { pool } = require('../db/schema');
 const { requireAuth, isRegionAdmin } = require('../middleware/auth');
 const { runResearchForCase } = require('../lib/research');
 const { runAnalysisForCase } = require('../lib/analysis');
+const { generateKeywordsForCase } = require('../lib/keywords');
 const { importFromWikipedia } = require('../lib/wikidataImport');
 
 const router = express.Router();
@@ -79,6 +80,7 @@ router.post('/cases/:id/approve', async (req, res) => {
   );
   runResearchForCase(updated[0].id).catch(err => console.error('Research kickoff failed:', err.message));
   runAnalysisForCase(updated[0].id).catch(err => console.error('Analysis kickoff failed:', err.message));
+  generateKeywordsForCase(updated[0].id).catch(err => console.error('Keyword generation kickoff failed:', err.message));
   res.json({ case: updated[0] });
 });
 

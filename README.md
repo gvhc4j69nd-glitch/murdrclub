@@ -137,6 +137,22 @@ and link-preview bots see real metadata instead of the generic SPA shell.
   pages, one entry per region, and one per **approved** case (matching what `GET /cases/:id`
   actually serves; pending/rejected cases are left out).
 
+### Case search
+
+`GET /cases?q=...` (same endpoint the "Active cases" list uses) matches every typed word
+against title, victim name, location, summary, and `cases.keywords` — a case only needs to
+contain all the words, not necessarily in the same field. Search boxes live in the nav bar
+(site-wide, jumps to `/cases?q=...`) and on the "Active cases" page itself (live/debounced,
+no submit needed).
+
+`cases.keywords` is generated once per case, right after admin approval (`server/lib/keywords.js`,
+same `ANTHROPIC_API_KEY`-gated no-op-if-unset pattern as club research/analysis) — Claude reads
+the case's title/victim/location/summary and produces a short list of alternate names, nearby
+places, associated people, and thematic terms, so search can find a case by things that don't
+appear verbatim in the title or summary (e.g. searching "Leimert Park" or "Betty Short" finds
+the Black Dahlia case). It only fills in empty keywords, so it won't overwrite anything and is
+safe to call again.
+
 ## Deploying (Railway)
 
 1. Add a **Postgres** plugin to the Railway project — it injects `DATABASE_URL`

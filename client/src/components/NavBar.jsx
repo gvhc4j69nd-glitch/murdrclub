@@ -6,9 +6,17 @@ export default function NavBar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   function closeMenu() {
     setMenuOpen(false);
+  }
+
+  function submitSearch(e) {
+    e.preventDefault();
+    const trimmed = search.trim();
+    closeMenu();
+    navigate(trimmed ? `/cases?q=${encodeURIComponent(trimmed)}` : '/cases');
   }
 
   return (
@@ -34,6 +42,15 @@ export default function NavBar() {
             {user && <NavLink to="/messages" onClick={closeMenu} className={({ isActive }) => (isActive ? 'active' : '')}>Messages</NavLink>}
             {user && <NavLink to="/admin" onClick={closeMenu} className={({ isActive }) => (isActive ? 'active' : '')}>Admin</NavLink>}
           </nav>
+          <form className="nav-search" onSubmit={submitSearch}>
+            <input
+              type="search"
+              className="search-input"
+              placeholder="Search cases…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </form>
           <div className="nav-right">
             {user ? (
               <>
