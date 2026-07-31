@@ -29,9 +29,11 @@ function daysBetweenRuns(missStreak) {
   return 7;
 }
 
-// Searches the web for material on a case and files anything new as pending
-// club contributions for a regional/super admin to review. Never throws —
-// callers (case approval, the weekly cron) must not go down with it.
+// Searches the web for material on a case and files anything new as club
+// contributions, published immediately (auto-approved) rather than waiting
+// on admin review — admins can still remove one after the fact if it's bad.
+// Never throws — callers (case approval, the weekly cron) must not go down
+// with it.
 async function runResearchForCase(caseId) {
   const anthropicClient = getAnthropicClient();
   if (!anthropicClient) {
@@ -88,7 +90,7 @@ If you find nothing new and credible, respond with an empty array: []`;
       knownUrls.add(source.url);
       await pool.query(
         `INSERT INTO contributions (case_id, user_id, body, link_url, status)
-         VALUES ($1, $2, $3, $4, 'pending')`,
+         VALUES ($1, $2, $3, $4, 'visible')`,
         [caseId, clubId, source.summary || source.title || '', source.url]
       );
       added += 1;
@@ -99,7 +101,7 @@ If you find nothing new and credible, respond with an empty array: []`;
       'UPDATE cases SET last_researched_at = NOW(), research_miss_streak = $2 WHERE id = $1',
       [caseId, newStreak]
     );
-    console.log(`Research for case ${caseId}: added ${added} pending contribution(s), miss streak now ${newStreak}`);
+    console.log(`Research for case ${caseId}: published ${added} contribution(s), miss streak now ${newStreak}`);
   } catch (err) {
     console.error(`Research failed for case ${caseId}:`, err.message);
   }

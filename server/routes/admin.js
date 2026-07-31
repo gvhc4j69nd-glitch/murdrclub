@@ -70,7 +70,9 @@ router.post('/cases/:id/reject', async (req, res) => {
   res.json({ case: updated[0] });
 });
 
-// Approve or reject a pending contribution (e.g. a club-filed research find).
+// Approve a still-pending contribution (legacy path — club research now
+// publishes straight to 'visible', but this stays for anything that somehow
+// lands as pending, e.g. a future non-auto-approved source).
 router.post('/contributions/:id/approve', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT ct.*, c.region_key FROM contributions ct JOIN cases c ON c.id = ct.case_id WHERE ct.id = $1`,
@@ -88,13 +90,18 @@ router.post('/contributions/:id/approve', async (req, res) => {
   res.json({ contribution: updated[0] });
 });
 
+// Reject a contribution — either still pending, or already-published club
+// research an admin wants to take down after the fact (auto-approved
+// content isn't pre-reviewed, so this is its safety net).
 router.post('/contributions/:id/reject', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT ct.*, c.region_key FROM contributions ct JOIN cases c ON c.id = ct.case_id WHERE ct.id = $1`,
     [req.params.id]
   );
   const contribution = rows[0];
-  if (!contribution || contribution.status !== 'pending') return res.status(404).json({ error: 'Contribution not found' });
+  if (!contribution || !['pending', 'visible'].includes(contribution.status)) {
+    return res.status(404).json({ error: 'Contribution not found' });
+  }
   if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, contribution.region_key))) {
     return res.status(403).json({ error: 'Not an admin for this region' });
   }
@@ -105,7 +112,8 @@ router.post('/contributions/:id/reject', async (req, res) => {
   res.json({ contribution: updated[0] });
 });
 
-// Approve or reject a case's pending AI analysis before it's shown publicly.
+// Approve a still-pending AI analysis (legacy path — analysis now publishes
+// straight to 'approved', see server/lib/analysis.js).
 router.post('/cases/:id/analysis/approve', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
   const caseRow = rows[0];
@@ -120,10 +128,14 @@ router.post('/cases/:id/analysis/approve', async (req, res) => {
   res.json({ case: updated[0] });
 });
 
+// Reject an AI analysis — either still pending, or already-published
+// (auto-approved content isn't pre-reviewed, so this is its safety net).
 router.post('/cases/:id/analysis/reject', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM cases WHERE id = $1', [req.params.id]);
   const caseRow = rows[0];
-  if (!caseRow || caseRow.ai_analysis_status !== 'pending') return res.status(404).json({ error: 'No pending analysis' });
+  if (!caseRow || !['pending', 'approved'].includes(caseRow.ai_analysis_status)) {
+    return res.status(404).json({ error: 'No analysis to reject' });
+  }
   if (!req.user.is_superadmin && !(await isRegionAdmin(req.user.id, caseRow.region_key))) {
     return res.status(403).json({ error: 'Not an admin for this region' });
   }

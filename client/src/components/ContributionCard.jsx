@@ -24,6 +24,11 @@ export default function ContributionCard({ contribution, currentUserId, onRate, 
             <button className="btn btn-sm btn-danger" onClick={() => onModerate(c.id, 'reject')}>Reject</button>
           </span>
         )}
+        {canModerate && c.is_club && c.status === 'visible' && (
+          <span style={{ marginLeft: 'auto' }}>
+            <button className="btn btn-sm btn-danger" onClick={() => onModerate(c.id, 'reject')}>Remove</button>
+          </span>
+        )}
       </div>
       <Translatable text={c.body} className="contribution-body" />
       <div className="contribution-media">

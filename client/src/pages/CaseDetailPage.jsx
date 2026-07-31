@@ -151,6 +151,11 @@ export default function CaseDetailPage() {
                   <button className="btn btn-sm btn-danger" onClick={() => handleAnalysisModerate('reject')}>Reject</button>
                 </div>
               )}
+              {canModerate && c.ai_analysis_status === 'approved' && (
+                <div style={{ marginTop: 12 }}>
+                  <button className="btn btn-sm btn-danger" onClick={() => handleAnalysisModerate('reject')}>Remove</button>
+                </div>
+              )}
             </div>
           )}
 

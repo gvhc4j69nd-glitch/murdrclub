@@ -2,10 +2,10 @@ const { pool } = require('../db/schema');
 const { getAnthropicClient } = require('./anthropicClient');
 
 // Synthesizes a short "state of the case" write-up from the evidence already
-// submitted — no web search, this reasons over existing inputs only. Lands
-// as 'pending' for a regional/super admin to review before it's public,
-// same gate as club research finds, since this is AI speculation about a
-// real unsolved murder and needs a human check before anyone sees it.
+// submitted — no web search, this reasons over existing inputs only. Goes
+// live immediately (auto-approved) rather than waiting on admin review —
+// unlike a new case suggestion, this only restates evidence already visible
+// on the case page. Admins can still pull it down after the fact if it's bad.
 async function runAnalysisForCase(caseId) {
   const anthropicClient = getAnthropicClient();
   if (!anthropicClient) {
@@ -71,10 +71,10 @@ Write a short (150-250 word) analysis of where this case stands. Focus on: the m
       .trim();
 
     await pool.query(
-      `UPDATE cases SET ai_analysis = $2, ai_analysis_status = 'pending', ai_analysis_updated_at = NOW() WHERE id = $1`,
+      `UPDATE cases SET ai_analysis = $2, ai_analysis_status = 'approved', ai_analysis_updated_at = NOW() WHERE id = $1`,
       [caseId, analysis]
     );
-    console.log(`Analysis generated for case ${caseId}, pending review`);
+    console.log(`Analysis generated for case ${caseId}, published`);
   } catch (err) {
     console.error(`Analysis failed for case ${caseId}:`, err.message);
   }
