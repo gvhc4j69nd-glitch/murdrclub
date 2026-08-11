@@ -1,6 +1,12 @@
 const { pool } = require('../db/schema');
 const { getAnthropicClient } = require('./anthropicClient');
 
+// Static across every case, so it's split into a cache-eligible system
+// block rather than inlined into the per-case user message.
+const ANALYSIS_SYSTEM_PROMPT = `You are summarizing the state of an unsolved murder case for a citizen-investigation site, based only on what's been submitted so far.
+
+Write a short (150-250 word) analysis of where this case stands. Focus on: the most credible leads or patterns across the submitted evidence, contradictions or open questions worth investigating, and what kind of evidence would help most next. Do NOT accuse or name any specific living person as the perpetrator — discuss theories and evidence, not verdicts. If the submitted evidence is too thin to say anything meaningful, say so plainly instead of speculating.`;
+
 // Synthesizes a short "state of the case" write-up from the evidence already
 // submitted — no web search, this reasons over existing inputs only. Goes
 // live immediately (auto-approved) rather than waiting on admin review —
@@ -46,23 +52,21 @@ async function runAnalysisForCase(caseId) {
             .join('\n')
         : '(No community evidence submitted yet — base your analysis on the case summary only.)';
 
-    const prompt = `You are summarizing the state of an unsolved murder case for a citizen-investigation site, based only on what's been submitted so far.
-
-Case: "${caseRow.title}"
+    const userContent = `Case: "${caseRow.title}"
 Victim: ${caseRow.victim_name || 'unknown'}
 Location: ${caseRow.location || 'unknown'}
 Date: ${caseRow.date_occurred || 'unknown'}
 Summary: ${caseRow.summary}
 
 Evidence and leads submitted by members and club research, oldest to newest:
-${evidenceText}
-
-Write a short (150-250 word) analysis of where this case stands. Focus on: the most credible leads or patterns across the submitted evidence, contradictions or open questions worth investigating, and what kind of evidence would help most next. Do NOT accuse or name any specific living person as the perpetrator — discuss theories and evidence, not verdicts. If the submitted evidence is too thin to say anything meaningful, say so plainly instead of speculating.`;
+${evidenceText}`;
 
     const message = await anthropicClient.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
+      system: [{ type: 'text', text: ANALYSIS_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      output_config: { effort: 'low' },
+      messages: [{ role: 'user', content: userContent }],
     });
     const analysis = message.content
       .filter(block => block.type === 'text')

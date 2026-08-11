@@ -36,6 +36,7 @@ Respond with ONLY a comma-separated list of 8-15 short keywords/phrases (no pros
     const message = await anthropicClient.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 1024,
+      thinking: { type: 'disabled' },
       messages: [{ role: 'user', content: prompt }],
     });
     const text = message.content

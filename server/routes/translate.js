@@ -18,6 +18,7 @@ router.post('/translate', requireAuth, async (req, res) => {
     const message = await anthropicClient.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 2048,
+      thinking: { type: 'disabled' },
       messages: [
         {
           role: 'user',

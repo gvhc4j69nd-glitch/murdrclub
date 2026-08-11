@@ -22,12 +22,25 @@ function extractSources(text) {
 }
 
 // Cases that keep coming up empty get researched less often. Streak resets
-// to 0 the moment a run finds something new.
+// to 0 the moment a run finds something new. A years-old cold case rarely
+// gets new coverage week to week, so long-dry cases back off to quarterly
+// rather than paying for a weekly search that almost never finds anything.
 function daysBetweenRuns(missStreak) {
+  if (missStreak >= 8) return 90;
   if (missStreak >= 4) return 28;
   if (missStreak >= 2) return 14;
   return 7;
 }
+
+// Static across every case, so it's split into a cache-eligible system
+// block rather than inlined into the per-case user message — the known-URL
+// list can't move here since it changes every call.
+const RESEARCH_SYSTEM_PROMPT = `You are researching an unsolved murder case for a citizen-investigation site. Search the web for credible news articles, case files, or reporting about the case described in the user message, skipping any URL already listed as known.
+
+Respond with ONLY a JSON array (no prose, no markdown fences) of up to 5 newly found sources, each shaped as:
+{"url": "...", "title": "...", "summary": "1-3 sentence summary of what this source adds"}
+
+If you find nothing new and credible, respond with an empty array: []`;
 
 // Searches the web for material on a case and files anything new as club
 // contributions, published immediately (auto-approved) rather than waiting
@@ -56,25 +69,21 @@ async function runResearchForCase(caseId) {
     );
     const knownUrls = new Set(existing.map(r => r.link_url));
 
-    const prompt = `You are researching an unsolved murder case for a citizen-investigation site.
-Case: "${caseRow.title}"
+    const userContent = `Case: "${caseRow.title}"
 Victim: ${caseRow.victim_name || 'unknown'}
 Location: ${caseRow.location || 'unknown'}
 Date: ${caseRow.date_occurred || 'unknown'}
 Summary: ${caseRow.summary}
 
-Search the web for credible news articles, case files, or reporting about this case. Skip these URLs, already known: ${[...knownUrls].join(', ') || '(none yet)'}.
-
-Respond with ONLY a JSON array (no prose, no markdown fences) of up to 5 newly found sources, each shaped as:
-{"url": "...", "title": "...", "summary": "1-3 sentence summary of what this source adds"}
-
-If you find nothing new and credible, respond with an empty array: []`;
+Already-known URLs to skip: ${[...knownUrls].join(', ') || '(none yet)'}`;
 
     const message = await anthropicClient.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 2048,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
-      messages: [{ role: 'user', content: prompt }],
+      system: [{ type: 'text', text: RESEARCH_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      output_config: { effort: 'low' },
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      messages: [{ role: 'user', content: userContent }],
     });
 
     const text = message.content
