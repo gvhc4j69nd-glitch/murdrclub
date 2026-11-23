@@ -72,7 +72,15 @@ function serveStatic(req, res, pathname) {
 
 // ---------------------------------------------------------------- app
 
-function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'data'), clock = () => Date.now(), rng = Math.random, tickMs = 2000 } = {}) {
+/**
+ * Where the save file lives: DATA_DIR if set, else a Railway volume if one is
+ * attached (Railway sets RAILWAY_VOLUME_MOUNT_PATH), else ./data.
+ */
+function defaultDataDir() {
+  return process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
+}
+
+function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng = Math.random, tickMs = 2000 } = {}) {
   const store = createStore(dataDir);
   const ctx = () => ({ now: clock(), rng });
 
@@ -282,7 +290,10 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
 if (require.main === module) {
   const port = Number(process.env.PORT) || 4400;
   const { server, store } = createApp();
-  server.listen(port, () => console.log(`MurdrClub is open at http://localhost:${port}`));
+  server.listen(port, () => console.log(`MurdrClub is open on port ${port}, saving to ${defaultDataDir()}`));
+  if (process.env.RAILWAY_ENVIRONMENT && !process.env.DATA_DIR && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+    console.warn('WARNING: no Railway volume is attached. Every account and game will be wiped on the next deploy or restart. Attach a volume to this service (any mount path) and redeploy.');
+  }
   const shutdown = () => { store.flushNow(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

@@ -19,6 +19,24 @@ npm test         # rules engine, Club Time, and an end-to-end HTTP game
 To try a whole game alone: create a **Fast** club, add at least 7 practice
 bots, open the club, and use **End phase now** to move through the phases.
 
+## Deploying on Railway
+
+`railway.json` sets everything up: Railpack build, `node server.js`, a
+health check on `/healthz`, and a single replica (the MVP keeps its state in
+one process, so it must not run more than one copy).
+
+1. In Railway, create a service from this GitHub repository. It redeploys on
+   every push to `main`.
+2. **Attach a volume to the service** (right-click the service → Attach
+   volume; any mount path, for example `/data`). Railway tells the app where
+   it is through `RAILWAY_VOLUME_MOUNT_PATH`, and the save file goes there.
+   **Without a volume, every account and game is wiped on each deploy or
+   restart**, and the deploy log prints a warning saying so.
+3. Under Settings → Networking, generate a domain or add `murdrclub.com`.
+
+No environment variables are required. Optional: `DATA_DIR` to put the
+save file somewhere other than the volume. Railway sets `PORT` itself.
+
 ## What the MVP does
 
 | Area | In the MVP |
