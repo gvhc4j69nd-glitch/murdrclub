@@ -7,35 +7,53 @@ Members win by unmasking every Murderer. The Murderers win if any of them
 survive to the end. A season lasts **half a day per player**, so 8 players
 play 4 days and 25 play 13. The Vault is counted in **points**, not money.
 
-This folder is the MVP. It has no dependencies and no build step: plain Node on
-the server and plain HTML, CSS and JS in the browser.
+This is the MVP. There is no build step: plain Node on the server (its one
+dependency is `pg`, for Postgres) and plain HTML, CSS and JS in the browser.
 
 ```sh
-cd murdrclub
+npm install
 npm start        # http://localhost:4400
-npm test         # rules engine, Club Time, and an end-to-end HTTP game
+npm test         # rules engine, Club Time, storage, and end-to-end HTTP games
 ```
+
+**Storage.** With `DATABASE_URL` set, everything is kept in Postgres. Without
+it, for local development, the server saves to `data/murdrclub.json`. To run
+the tests against Postgres as well as the file store:
+
+```sh
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/murdrclub_test npm test
+```
+
+Each test uses its own throwaway schema, so any database you can write to will
+do.
 
 To try a whole game alone: create a **Fast** club, add at least 7 practice
 bots, open the club, and use **End phase now** to move through the phases.
 
 ## Deploying on Railway
 
-`railway.json` sets everything up: Railpack build, `node server.js`, a
-health check on `/healthz`, and a single replica (the MVP keeps its state in
-one process, so it must not run more than one copy).
+`railway.json` sets up the build, starts `node server.js`, and checks
+`/healthz` before switching traffic to a new deploy.
 
 1. In Railway, create a service from this GitHub repository. It redeploys on
    every push to `main`.
-2. **Attach a volume to the service** (right-click the service → Attach
-   volume; any mount path, for example `/data`). Railway tells the app where
-   it is through `RAILWAY_VOLUME_MOUNT_PATH`, and the save file goes there.
-   **Without a volume, every account and game is wiped on each deploy or
-   restart**, and the deploy log prints a warning saying so.
-3. Under Settings → Networking, generate a domain or add `murdrclub.com`.
+2. Add a **Postgres** database to the project (New → Database → PostgreSQL).
+3. In the app service's **Variables**, add
+   `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
+   (the name inside `${{ }}` must match the database service's name exactly).
+4. Deploy. The log should say `Storage: Postgres (from DATABASE_URL).` and
+   `/healthz` reports `"storage":"postgres"`. The tables (`mc_users`,
+   `mc_sessions`, `mc_clubs`) are created automatically on first start.
+5. Under Settings → Networking, generate a domain or add `murdrclub.com`.
 
-No environment variables are required. Optional: `DATA_DIR` to put the
-save file somewhere other than the volume. Railway sets `PORT` itself.
+If `DATABASE_URL` is mistyped, the deploy fails with a message saying so,
+rather than quietly running without the database. If it is missing
+altogether, the server falls back to the file store and warns that
+everything will be wiped on the next deploy.
+
+Nothing is kept in server memory, so you can raise the replica count:
+requests lock the club's row while they change it, and the phase timers on
+different replicas skip clubs another replica is already handling.
 
 ## What the MVP does
 
@@ -69,7 +87,8 @@ lib/game.js        the rules engine: pure functions on a club object
 lib/schedule.js    Club Time: the next 18:00 / 21:00 / 08:00 in a time zone
 lib/content.js     Errand questions, murder notices, bot names
 lib/auth.js        passwords and sessions
-lib/store.js       in-memory state saved to data/murdrclub.json
+lib/store.js       storage: Postgres, or a local JSON file in development
+lib/db.js          finding and connecting to Postgres
 public/            the single-page app
 test/              node:test suites
 ```
@@ -101,8 +120,6 @@ POST /api/clubs/:id/messages {channel: lounge|backroom|cellar, text}
 - **Invitations by name only.** There is no email yet, so the host invites
   people who already have an account, or sends the code or link privately
   themselves.
-- **Storage** is a single JSON file in one process. Before real launch, move it
-  to Postgres, which also allows more than one server instance.
 - **The host can end phases early**, which a host who is also a Murderer could
   abuse. That is acceptable for private clubs of friends; for public clubs,
   restrict it.

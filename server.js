@@ -3,9 +3,10 @@
 /**
  * MurdrClub web server (murdrclub.com).
  *
- * Plain Node, no dependencies: serves the single-page app from public/ and a
- * small JSON API under /api. A timer moves every running club to its next
- * phase when its deadline passes.
+ * Serves the single-page app from public/ and a small JSON API under /api.
+ * State lives in Postgres when DATABASE_URL is set (production), otherwise in
+ * a local JSON file (development). A timer moves every running club to its
+ * next phase when its deadline passes.
  */
 
 const http = require('http');
@@ -15,7 +16,8 @@ const crypto = require('crypto');
 
 const game = require('./lib/game');
 const auth = require('./lib/auth');
-const { createStore } = require('./lib/store');
+const { createPgStore, createFileStore } = require('./lib/store');
+const db = require('./lib/db');
 const { isValidTimeZone } = require('./lib/schedule');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -72,34 +74,56 @@ function serveStatic(req, res, pathname) {
 
 // ---------------------------------------------------------------- app
 
-/**
- * Where the save file lives: DATA_DIR if set, else a Railway volume if one is
- * attached (Railway sets RAILWAY_VOLUME_MOUNT_PATH), else ./data.
- */
+/** Where the file store saves: DATA_DIR, else a Railway volume, else ./data. */
 function defaultDataDir() {
   return process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, 'data');
 }
 
-function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng = Math.random, tickMs = 2000 } = {}) {
-  const store = createStore(dataDir);
-  const ctx = () => ({ now: clock(), rng });
-
-  const newId = () => crypto.randomBytes(8).toString('base64url');
-  function newCode() {
-    const taken = new Set(Object.values(store.data.clubs).map((c) => c.code));
-    for (;;) {
-      let code = '';
-      for (const b of crypto.randomBytes(6)) code += CODE_ALPHABET[b % CODE_ALPHABET.length];
-      if (!taken.has(code)) return code;
-    }
+/** Postgres if a database is configured, otherwise the local file store. */
+async function openStore({ env = process.env, log = console } = {}) {
+  const conn = db.connectionString(env);
+  if (conn) {
+    const pool = await db.connect(conn.url, { log });
+    const store = createPgStore(pool);
+    await store.init();
+    log.log(`Storage: Postgres (from ${conn.source}).`);
+    return store;
   }
+  const store = createFileStore(defaultDataDir());
+  log.log(`Storage: file ${store.file}. Set DATABASE_URL to use Postgres.`);
+  if (env.RAILWAY_ENVIRONMENT && !env.RAILWAY_VOLUME_MOUNT_PATH && !env.DATA_DIR) {
+    log.warn('WARNING: no database or volume is attached. Every account and game will be wiped on the next deploy. Add DATABASE_URL = ${{Postgres.DATABASE_URL}} to this service\'s variables.');
+  }
+  return store;
+}
 
-  function tickAll() {
-    let changed = false;
-    for (const club of Object.values(store.data.clubs)) {
-      if (club.status === 'active' && game.tick(club, ctx())) changed = true;
+const cleanName = (raw) => String(raw || '').trim().replace(/\s+/g, ' ');
+
+function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs = 2000, log = console }) {
+  if (!store) throw new Error('createApp needs a store');
+  const ctx = () => ({ now: clock(), rng });
+  const newId = () => crypto.randomBytes(8).toString('base64url');
+  const newCode = () => {
+    let code = '';
+    for (const b of crypto.randomBytes(6)) code += CODE_ALPHABET[b % CODE_ALPHABET.length];
+    return code;
+  };
+
+  // Move every club whose phase has ended. Clubs another server is already
+  // handling are skipped (SKIP LOCKED) and picked up on the next run.
+  let ticking = false;
+  async function tickAll() {
+    if (ticking) return;
+    ticking = true;
+    try {
+      for (const id of await store.dueClubIds(clock())) {
+        await store.withClub(id, (club) => { if (club && club.status === 'active') game.tick(club, ctx()); }, { skipLocked: true });
+      }
+    } catch (err) {
+      log.error('Phase timer failed:', err.message);
+    } finally {
+      ticking = false;
     }
-    if (changed) store.save();
   }
   const timer = tickMs ? setInterval(tickAll, tickMs) : null;
   if (timer) timer.unref();
@@ -120,10 +144,11 @@ function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng =
     id: club.id, name: club.name, host: hostName(club), players: club.players.length,
     pace: club.settings.pace, timeZone: club.settings.timeZone, seasonDays: game.seasonLength(club.players.length),
   });
-  const findUserByName = (raw) => {
-    const lower = String(raw || '').trim().replace(/\s+/g, ' ').toLowerCase();
-    return Object.values(store.data.users).find((u) => u.nameLower === lower) || null;
-  };
+
+  async function startSession(req, res, u) {
+    const t = await auth.createSession(store, u.id);
+    return sendJson(res, 200, { user: { id: u.id, name: u.name } }, { 'Set-Cookie': auth.sessionCookie(t, isSecure(req)) });
+  }
 
   async function handleApi(req, res, url, user, token) {
     const p = url.pathname;
@@ -146,22 +171,17 @@ function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng =
       if (n.error) return sendJson(res, 400, { error: n.error });
       const pw = auth.validatePassword(body.password);
       if (pw.error) return sendJson(res, 400, { error: pw.error });
-      const lower = n.name.toLowerCase();
-      if (Object.values(store.data.users).some((u) => u.nameLower === lower)) return sendJson(res, 409, { error: 'That name is taken.' });
-      const u = { id: newId(), name: n.name, nameLower: lower, pass: auth.hashPassword(pw.password), createdAt: clock() };
-      store.data.users[u.id] = u;
-      const t = auth.createSession(store, u.id);
-      return sendJson(res, 200, { user: { id: u.id, name: u.name } }, { 'Set-Cookie': auth.sessionCookie(t, isSecure(req)) });
+      const u = { id: newId(), name: n.name, nameLower: n.name.toLowerCase(), pass: auth.hashPassword(pw.password), createdAt: clock() };
+      if (!(await store.insertUser(u))) return sendJson(res, 409, { error: 'That name is taken.' });
+      return startSession(req, res, u);
     }
     if (p === '/api/login' && method === 'POST') {
-      const lower = String(body.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-      const u = Object.values(store.data.users).find((x) => x.nameLower === lower);
+      const u = await store.findUserByName(cleanName(body.name).toLowerCase());
       if (!u || !auth.verifyPassword(String(body.password || ''), u.pass)) return sendJson(res, 401, { error: 'Name or password is wrong.' });
-      const t = auth.createSession(store, u.id);
-      return sendJson(res, 200, { user: { id: u.id, name: u.name } }, { 'Set-Cookie': auth.sessionCookie(t, isSecure(req)) });
+      return startSession(req, res, u);
     }
     if (p === '/api/logout' && method === 'POST') {
-      auth.endSession(store, token);
+      await auth.endSession(store, token);
       return sendJson(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie() });
     }
 
@@ -169,94 +189,87 @@ function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng =
 
     // ---- clubs
     if (p === '/api/clubs' && method === 'GET') {
-      const mine = Object.values(store.data.clubs).filter((c) => game.findPlayer(c, user.id));
-      mine.sort((a, b) => b.createdAt - a.createdAt);
-      const invitations = Object.values(store.data.clubs)
-        .filter((c) => c.status === 'lobby' && game.isInvited(c, user.id) && !game.findPlayer(c, user.id))
-        .map(lobbyCard);
+      const [mine, invited] = await Promise.all([store.clubsForUser(user.id), store.invitationsFor(user.id)]);
+      const invitations = invited.filter((c) => !game.findPlayer(c, user.id)).map(lobbyCard);
       return sendJson(res, 200, { clubs: mine.map((c) => clubSummary(c, user.id)), invitations });
     }
     if (p === '/api/clubs/open' && method === 'GET') {
-      const open = Object.values(store.data.clubs)
-        .filter((c) => c.visibility === 'public' && c.status === 'lobby' && c.players.length < game.MAX_PLAYERS && !game.findPlayer(c, user.id))
-        .sort((a, b) => b.players.length - a.players.length)
-        .slice(0, 50)
-        .map(lobbyCard);
+      const open = (await store.openClubs(60)).filter((c) => !game.findPlayer(c, user.id)).slice(0, 50).map(lobbyCard);
       return sendJson(res, 200, { clubs: open });
     }
     if (p === '/api/clubs' && method === 'POST') {
-      const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, 40) || `${user.name}'s Club`;
+      const name = cleanName(body.name).slice(0, 40) || `${user.name}'s Club`;
       const pace = body.pace === 'fast' ? 'fast' : 'daily';
       const timeZone = isValidTimeZone(body.timeZone) ? body.timeZone : 'UTC';
       const mins = (v, d) => Math.max(1, Math.min(120, Math.round(Number(v) || d)));
       const f = body.fastMinutes || {};
       const settings = { pace, timeZone, fastMinutes: { day: mins(f.day, 3), tribunal: mins(f.tribunal, 2), backroom: mins(f.backroom, 1) } };
       const visibility = body.visibility === 'public' ? 'public' : 'private';
-      const club = game.newClub({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, settings, visibility, now: clock() });
-      store.data.clubs[club.id] = club;
-      store.save();
-      return sendJson(res, 200, { club: clubSummary(club, user.id) });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const club = game.newClub({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, settings, visibility, now: clock() });
+        if (await store.insertClub(club)) return sendJson(res, 200, { club: clubSummary(club, user.id) });
+      }
+      return sendJson(res, 503, { error: 'Could not create the club. Please try again.' });
     }
     const decline = p.match(/^\/api\/invitations\/([A-Za-z0-9_-]{6,20})\/decline$/);
     if (decline && method === 'POST') {
-      const club = store.data.clubs[decline[1]];
-      if (club) { game.withdrawInvite(club, user.id); store.save(); }
+      await store.withClub(decline[1], (club) => { if (club) game.withdrawInvite(club, user.id); });
       return sendJson(res, 200, { ok: true });
     }
     if (p === '/api/clubs/join' && method === 'POST') {
-      let club;
-      if (body.code) {
-        // The invitation code works for private and public clubs alike.
-        const code = String(body.code).toUpperCase().replace(/[^A-Z0-9]/g, '');
-        club = Object.values(store.data.clubs).find((c) => c.code === code);
-        if (!club) return sendJson(res, 404, { error: 'No club has that invitation code.' });
-      } else {
-        // Without a code: a public club, or a private one you were invited to.
-        club = store.data.clubs[String(body.id || '')];
-        if (!club || (club.visibility !== 'public' && !game.isInvited(club, user.id))) {
-          return sendJson(res, 404, { error: 'That club is invitation only.' });
-        }
-      }
-      game.addPlayer(club, { userId: user.id, name: user.name });
-      store.save();
-      return sendJson(res, 200, { club: clubSummary(club, user.id) });
+      // The invitation code works for private and public clubs alike. Without
+      // a code: a public club, or a private one you were invited to.
+      const byCode = Boolean(body.code);
+      const id = byCode ? await store.clubIdByCode(String(body.code).toUpperCase().replace(/[^A-Z0-9]/g, '')) : String(body.id || '');
+      if (!id && byCode) return sendJson(res, 404, { error: 'No club has that invitation code.' });
+      const out = await store.withClub(id, (club) => {
+        if (!club) return { status: 404, body: { error: byCode ? 'No club has that invitation code.' : 'That club is invitation only.' } };
+        if (!byCode && club.visibility !== 'public' && !game.isInvited(club, user.id)) return { status: 404, body: { error: 'That club is invitation only.' } };
+        game.addPlayer(club, { userId: user.id, name: user.name });
+        return { status: 200, body: { club: clubSummary(club, user.id) } };
+      });
+      return sendJson(res, out.status, out.body);
     }
 
     const m = p.match(/^\/api\/clubs\/([A-Za-z0-9_-]{6,20})(?:\/([a-z]+))?$/);
     if (!m) return sendJson(res, 404, { error: 'Not found.' });
-    const club = store.data.clubs[m[1]];
-    if (!club || !game.findPlayer(club, user.id)) return sendJson(res, 404, { error: 'Club not found.' });
     const action = m[2] || null;
-    const c = ctx();
-    if (club.status === 'active' && game.tick(club, c)) store.save();
+    if (method !== 'GET' && method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
+    if (action && method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
+    if (!action && method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed.' });
 
-    if (!action && method === 'GET') return sendJson(res, 200, { club: game.view(club, user.id, c.now) });
-    if (method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
+    // Looked up before the lock, since it is a separate query.
+    const invitee = action === 'invite' ? await store.findUserByName(cleanName(body.name).toLowerCase()) : null;
 
-    switch (action) {
-      case 'start': game.startGame(club, user.id, c); break;
-      case 'leave': game.removePlayer(club, user.id); store.save(); return sendJson(res, 200, { ok: true });
-      case 'bots': game.addBots(club, user.id, body.count, rng); break;
-      case 'invite': {
-        const invitee = findUserByName(body.name);
-        if (!invitee) return sendJson(res, 404, { error: 'No player has that name. Ask them to create an account first.' });
-        game.invitePlayer(club, user.id, invitee, c.now);
-        break;
+    const out = await store.withClub(m[1], (club) => {
+      if (!club || !game.findPlayer(club, user.id)) return { status: 404, body: { error: 'Club not found.' } };
+      const c = ctx();
+      if (club.status === 'active') game.tick(club, c);
+      if (!action) return { status: 200, body: { club: game.view(club, user.id, c.now) } };
+
+      switch (action) {
+        case 'start': game.startGame(club, user.id, c); break;
+        case 'leave': game.removePlayer(club, user.id); return { status: 200, body: { ok: true } };
+        case 'bots': game.addBots(club, user.id, body.count, rng); break;
+        case 'invite':
+          if (!invitee) return { status: 404, body: { error: 'No player has that name. Ask them to create an account first.' } };
+          game.invitePlayer(club, user.id, invitee, c.now);
+          break;
+        case 'uninvite':
+          if (user.id !== club.hostId) return { status: 403, body: { error: 'Only the host can withdraw invitations.' } };
+          game.withdrawInvite(club, String(body.userId || ''));
+          break;
+        case 'advance': game.hostAdvance(club, user.id, c); break;
+        case 'errand': game.answerErrand(club, user.id, body.choice); break;
+        case 'vote': game.castVote(club, user.id, String(body.targetId || '')); break;
+        case 'toast': game.castToast(club, user.id, body.choice); break;
+        case 'murder': game.castMurder(club, user.id, String(body.targetId || '')); break;
+        case 'messages': game.postMessage(club, user.id, body.channel, body.text, c.now); break;
+        default: return { status: 404, body: { error: 'Not found.' } };
       }
-      case 'uninvite':
-        if (user.id !== club.hostId) return sendJson(res, 403, { error: 'Only the host can withdraw invitations.' });
-        game.withdrawInvite(club, String(body.userId || ''));
-        break;
-      case 'advance': game.hostAdvance(club, user.id, c); break;
-      case 'errand': game.answerErrand(club, user.id, body.choice); break;
-      case 'vote': game.castVote(club, user.id, String(body.targetId || '')); break;
-      case 'toast': game.castToast(club, user.id, body.choice); break;
-      case 'murder': game.castMurder(club, user.id, String(body.targetId || '')); break;
-      case 'messages': game.postMessage(club, user.id, body.channel, body.text, c.now); break;
-      default: return sendJson(res, 404, { error: 'Not found.' });
-    }
-    store.save();
-    return sendJson(res, 200, { club: game.view(club, user.id, c.now) });
+      return { status: 200, body: { club: game.view(club, user.id, c.now) } };
+    });
+    return sendJson(res, out.status, out.body);
   }
 
   function isSecure(req) {
@@ -266,10 +279,10 @@ function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng =
   async function handler(req, res) {
     const url = new URL(req.url, 'http://localhost');
     try {
-      if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
+      if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true, storage: store.kind });
       if (url.pathname.startsWith('/api/')) {
         const token = cookies(req)[auth.SESSION_COOKIE] || null;
-        const user = auth.userForToken(store, token);
+        const user = await auth.userForToken(store, token);
         return await handleApi(req, res, url, user, token);
       }
       if ((req.method === 'GET' || req.method === 'HEAD') && serveStatic(req, res, url.pathname)) return undefined;
@@ -277,26 +290,33 @@ function createApp({ dataDir = defaultDataDir(), clock = () => Date.now(), rng =
       return res.end('Not found');
     } catch (err) {
       if (err instanceof game.GameError) return sendJson(res, err.status, { error: err.message });
-      console.error(err);
+      log.error(err);
+      if (res.headersSent) return res.end();
       return sendJson(res, 500, { error: 'Something went wrong.' });
     }
   }
 
   const server = http.createServer(handler);
-  server.on('close', () => { if (timer) clearInterval(timer); store.flushNow(); });
+  server.on('close', () => { if (timer) clearInterval(timer); });
   return { server, store, tickAll };
 }
 
 if (require.main === module) {
-  const port = Number(process.env.PORT) || 4400;
-  const { server, store } = createApp();
-  server.listen(port, () => console.log(`MurdrClub is open on port ${port}, saving to ${defaultDataDir()}`));
-  if (process.env.RAILWAY_ENVIRONMENT && !process.env.DATA_DIR && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
-    console.warn('WARNING: no Railway volume is attached. Every account and game will be wiped on the next deploy or restart. Attach a volume to this service (any mount path) and redeploy.');
-  }
-  const shutdown = () => { store.flushNow(); process.exit(0); };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  (async () => {
+    const port = Number(process.env.PORT) || 4400;
+    const store = await openStore();
+    const { server } = createApp({ store });
+    server.listen(port, () => console.log(`MurdrClub is open on port ${port}.`));
+    const shutdown = () => {
+      server.close(() => store.close().finally(() => process.exit(0)));
+      server.closeIdleConnections();
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  })().catch((err) => {
+    console.error(`MurdrClub could not start: ${err.message}`);
+    process.exit(1);
+  });
 }
 
-module.exports = { createApp };
+module.exports = { createApp, openStore };
