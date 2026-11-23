@@ -1,0 +1,15 @@
+{
+  "name": "murdrclub",
+  "version": "0.1.0",
+  "description": "MurdrClub (murdrclub.com): an online murder-mystery social deduction game for up to 25 players.",
+  "main": "server.js",
+  "private": true,
+  "homepage": "https://murdrclub.com",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  }
+}
