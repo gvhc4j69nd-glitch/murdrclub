@@ -182,10 +182,10 @@
     app.replaceChildren(h('section', { class: 'hero' },
       h('div', {},
         h('h1', {}, 'Every night, someone is murdered.'),
-        h('p', { class: 'tagline' }, 'MurdrClub is an online murder mystery for up to 25 friends. A few of you are secretly Murderers. Each night they choose a victim; each day the Club votes on who to blackball. A season lasts about a month, played a few minutes at a time.'),
+        h('p', { class: 'tagline' }, 'MurdrClub is an online murder mystery for 8 to 25 friends. A few of you are secretly Murderers. Each night they choose a victim; each day the Club votes on who to blackball. A season lasts half a day per player \u2014 13 days for a full club of 25 \u2014 played a few minutes at a time.'),
         h('div', { class: 'steps' },
           h('div', { class: 'step' }, h('b', {}, 'Errands'), h('span', { class: 'muted small' }, 'Daytime puzzles fill the Vault. Talk it over in the Lounge.')),
-          h('div', { class: 'step' }, h('b', {}, 'The Tribunal'), h('span', { class: 'muted small' }, 'Vote at 18:00. A majority blackballs someone — and their card is turned over.')),
+          h('div', { class: 'step' }, h('b', {}, 'The Tribunal'), h('span', { class: 'muted small' }, 'Vote at 18:00. A majority blackballs someone, and their card is turned over \u2014 until only 5 remain.')),
           h('div', { class: 'step' }, h('b', {}, 'The Back Room'), h('span', { class: 'muted small' }, 'At night the Murderers meet in secret and pick their next victim.')))),
       form));
   }
@@ -193,7 +193,7 @@
   // ------------------------------------------------------------ home
 
   async function renderHome() {
-    const { clubs } = await api('/api/clubs');
+    const [{ clubs, invitations }, { clubs: open }] = await Promise.all([api('/api/clubs'), api('/api/clubs/open')]);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
     const fastFields = h('div', { class: 'row', hidden: true },
@@ -209,15 +209,20 @@
       h('h2', {}, 'Found a club'),
       h('div', { class: 'field' }, h('label', { for: 'f-club' }, 'Club name'),
         h('input', { id: 'f-club', name: 'name', maxlength: '40', placeholder: `${state.user.name}'s Club` })),
+      h('div', { class: 'field' }, h('label', { for: 'f-vis' }, 'Who can join'),
+        h('select', { id: 'f-vis', name: 'visibility' },
+          h('option', { value: 'private' }, 'Private \u2014 invitation only'),
+          h('option', { value: 'public' }, 'Public \u2014 listed in Open clubs'))),
       h('div', { class: 'field' }, h('label', { for: 'f-pace' }, 'Pace'), pace),
       fastFields,
+      h('p', { class: 'muted small' }, '8 to 25 members. The season lasts half a day per member, so 8 members play 4 days and 25 play 13. Nobody can join once it starts.'),
       h('p', { class: 'muted small' }, `Club Time: ${tz}. Daily clubs run Errands until 18:00, the Tribunal until 21:00, and the Back Room until 08:00.`),
       h('button', { class: 'primary', type: 'submit' }, 'Create club'));
     create.addEventListener('submit', guard(async (ev) => {
       ev.preventDefault();
       const fd = new FormData(create);
       const { club } = await api('/api/clubs', {
-        name: fd.get('name'), pace: fd.get('pace'), timeZone: tz,
+        name: fd.get('name'), pace: fd.get('pace'), visibility: fd.get('visibility'), timeZone: tz,
         fastMinutes: { day: fd.get('fm-day'), tribunal: fd.get('fm-tribunal'), backroom: fd.get('fm-backroom') },
       });
       location.hash = `#/club/${club.id}`;
@@ -242,15 +247,42 @@
     };
 
     app.replaceChildren(h('div', { class: 'home' },
-      h('section', { class: 'card' },
+      h('div', { class: 'stack', id: 'home-left' }, h('section', { class: 'card' },
         h('h2', {}, 'Your clubs'),
         clubs.length
           ? h('ul', { class: 'club-list' }, clubs.map((c) => h('li', {}, h('a', { class: 'club-item', href: `#/club/${c.id}` },
             h('div', {}, h('b', {}, c.name), h('div', { class: 'muted small' },
               `${c.alive}/${c.players} members${c.isHost ? ' · you host' : ''}${c.pace === 'fast' ? ' · fast' : ''}`)),
             statusBadge(c)))))
-          : h('p', { class: 'muted' }, 'You have not joined a club yet. Found one and invite your friends, or enter an invitation code.')),
+          : h('p', { class: 'muted' }, 'You have not joined a club yet. Found one and invite your friends, accept an invitation, or join an open club.'))),
       h('div', { class: 'stack' }, create, join)));
+
+    const clubCard = (c, buttons) => h('li', { class: 'club-item' },
+      h('div', {}, h('b', {}, c.name), h('div', { class: 'muted small' },
+        `Hosted by ${c.host} \u00b7 ${c.players}/25 members \u00b7 ${c.seasonDays}-day season${c.pace === 'fast' ? ' \u00b7 fast' : ''}`)),
+      h('div', { class: 'row' }, buttons));
+    const joinById = (id) => guard(async () => {
+      const { club } = await api('/api/clubs/join', { id });
+      location.hash = `#/club/${club.id}`;
+    });
+
+    const extra = [];
+    if (invitations.length) {
+      extra.push(h('section', { class: 'card invitations' },
+        h('h2', {}, 'You are invited'),
+        h('ul', { class: 'club-list' }, invitations.map((c) => clubCard(c, [
+          h('button', { class: 'primary small', onclick: joinById(c.id) }, 'Accept'),
+          h('button', { class: 'small ghost', onclick: guard(async () => { await api(`/api/invitations/${c.id}/decline`, {}); renderHome(); }) }, 'Decline'),
+        ])))));
+    }
+    extra.push(h('section', { class: 'card' },
+      h('h2', {}, 'Open clubs'),
+      open.length
+        ? h('ul', { class: 'club-list' }, open.map((c) => clubCard(c, [h('button', { class: 'small', onclick: joinById(c.id) }, 'Join')])))
+        : h('p', { class: 'muted small' }, 'No public clubs are taking members right now. Found one yourself.')));
+    const left = document.getElementById('home-left');
+    if (invitations.length) left.prepend(extra.shift());
+    left.append(...extra);
   }
 
   // ------------------------------------------------------------ club
@@ -359,25 +391,53 @@
 
   function updateLobby(club) {
     document.getElementById('club-name').textContent = club.name;
-    const link = `${location.origin}/#/join/${club.code}`;
-    patch('lobby-invite', document.getElementById('lobby-invite'), { code: club.code }, () => [
-      h('h2', {}, 'Invite members'),
-      h('p', { class: 'muted small' }, 'Share this code or link. Up to 25 members can join before the club opens.'),
-      h('div', { class: 'code' }, club.code),
-      h('div', { class: 'row', style: 'margin-top:10px' },
-        h('button', { class: 'small', onclick: guard(async () => { await navigator.clipboard.writeText(link); toast('Invitation link copied.'); }) }, 'Copy link')),
-    ]);
-
+    const priv = club.visibility === 'private';
     const n = club.players.length;
-    patch('lobby-host', document.getElementById('lobby-host'), { isHost: club.isHost, n, limits: club.limits, settings: club.settings }, () => {
+    patch('lobby-invite', document.getElementById('lobby-invite'), { code: club.code, priv, invites: club.invites, host: club.isHost, n }, () => {
+      const parts = [h('h2', {}, 'Invite members'), h('span', { class: `badge ${priv ? 'blood' : 'ok'}` }, priv ? 'Private club' : 'Public club')];
+      if (!club.code) {
+        parts.push(h('p', { class: 'muted small', style: 'margin-top:10px' }, 'This club is invitation only. Only the host can invite people.'));
+        return parts;
+      }
+      const link = `${location.origin}/#/join/${club.code}`;
+      parts.push(
+        h('p', { class: 'muted small', style: 'margin-top:10px' }, priv
+          ? 'Send this code or link privately to the people you want. Only you can see it.'
+          : 'Anyone can find this club under Open clubs, or join with this code.'),
+        h('div', { class: 'code' }, club.code),
+        h('div', { class: 'row', style: 'margin-top:10px' },
+          h('button', { class: 'small', onclick: guard(async () => { await navigator.clipboard.writeText(link); toast('Invitation link copied.'); }) }, 'Copy link')));
+      if (club.isHost) {
+        const input = h('input', { name: 'invitee', placeholder: 'Player name', maxlength: '24', autocomplete: 'off', 'aria-label': 'Player name to invite' });
+        const form = h('form', { class: 'row', style: 'margin-top:14px' }, h('div', { class: 'grow' }, input), h('button', { class: 'small', type: 'submit' }, 'Invite'));
+        form.addEventListener('submit', guard(async (ev) => {
+          ev.preventDefault();
+          const { club: next } = await api(`/api/clubs/${state.clubId}/invite`, { name: input.value });
+          toast(`Invitation sent to ${input.value.trim()}.`);
+          setClub(next);
+        }));
+        parts.push(h('h3', { style: 'margin-top:16px' }, 'Invite a player by name'),
+          h('p', { class: 'muted small' }, 'They will find the invitation on their My clubs page.'), form);
+        if (club.invites.length) {
+          parts.push(h('ul', { class: 'players', style: 'margin-top:10px' }, club.invites.map((i) => h('li', { class: 'player' },
+            avatar(i.name), h('span', { class: 'pname' }, i.name), h('span', { class: 'tag' }, 'invited'),
+            h('button', { class: 'small ghost', onclick: act('uninvite', { userId: i.userId }) }, 'Withdraw')))));
+        }
+      }
+      return parts;
+    });
+
+    patch('lobby-host', document.getElementById('lobby-host'), { isHost: club.isHost, n, limits: club.limits, settings: club.settings, days: club.seasonDays }, () => {
       const s = club.settings;
       const paceText = s.pace === 'fast'
         ? `Fast club: Errands ${s.fastMinutes.day} min, Tribunal ${s.fastMinutes.tribunal} min, Back Room ${s.fastMinutes.backroom} min.`
         : `Daily club in ${s.timeZone}: Errands until 18:00, Tribunal until 21:00, Back Room until 08:00.`;
-      const parts = [h('h2', {}, 'The season'), h('p', { class: 'small muted' }, paceText),
-        h('p', { class: 'small' }, `${n} member${n === 1 ? '' : 's'} · ${club.limits.murderers} Murderer${club.limits.murderers === 1 ? '' : 's'} will be dealt.`)];
+      const parts = [h('h2', {}, 'The season'),
+        h('p', {}, h('b', {}, `${club.seasonDays} days`), ` \u2014 half a day for each of ${n} member${n === 1 ? '' : 's'}.`),
+        h('p', { class: 'small muted' }, paceText),
+        h('p', { class: 'small' }, `${club.limits.murderers} Murderer${club.limits.murderers === 1 ? '' : 's'} will be dealt. No one can join after the club opens.`)];
       if (club.isHost) {
-        if (n < club.limits.recommended) parts.push(h('p', { class: 'small muted' }, `Best with ${club.limits.recommended}–${club.limits.max}. You can fill seats with practice bots to try it out.`));
+        if (n < club.limits.min) parts.push(h('p', { class: 'small muted' }, `You need at least ${club.limits.min} members (up to ${club.limits.max}). You can fill seats with practice bots to try it out.`));
         parts.push(h('div', { class: 'row' },
           h('button', { class: 'primary', disabled: n < club.limits.min, onclick: act('start', {}) }, 'Open the club'),
           h('button', { class: 'small', disabled: n >= club.limits.max, onclick: act('bots', { count: 1 }) }, '+1 bot'),
@@ -404,7 +464,7 @@
         h('div', {},
           h('h1', { id: 'club-name' }),
           h('div', { class: 'phase-line', id: 'phase-line' })),
-        h('div', { class: 'vault' }, h('div', { class: 'muted small' }, 'The Vault'), h('div', { class: 'amount', id: 'vault' }))),
+        h('div', { class: 'vault' }, h('div', { class: 'muted small' }, 'The Vault (points)'), h('div', { class: 'amount', id: 'vault' }))),
       h('div', { id: 'banner' }),
       h('div', { class: 'grid' },
         h('div', { class: 'stack' }, h('div', { id: 'my-card' }), h('section', { class: 'card', id: 'players' })),
@@ -414,12 +474,12 @@
 
   function updateGame(club) {
     document.getElementById('club-name').textContent = club.name;
-    document.getElementById('vault').textContent = money(club.vault);
+    document.getElementById('vault').textContent = `${money(club.vault)} pts`;
 
     patch('phase-line', document.getElementById('phase-line'), { s: club.status, ph: club.phase, d: club.day, e: club.endgame, host: club.isHost }, () => {
-      if (club.status === 'ended') return [h('span', { class: 'badge' }, `Season over · Day ${club.day}`)];
+      if (club.status === 'ended') return [h('span', { class: 'badge' }, `Season over · Day ${club.day} of ${club.seasonDays}`)];
       return [
-        h('span', { class: 'badge gold' }, `Day ${club.day}`),
+        h('span', { class: 'badge gold' }, `Day ${club.day} of ${club.seasonDays}`),
         h('span', { class: `badge ${club.phase === 'backroom' ? 'blood' : ''}` }, club.phaseName),
         club.endgame ? h('span', { class: 'badge blood' }, 'The Last Toast') : null,
         h('span', { class: 'countdown', id: 'countdown' }),
@@ -435,7 +495,7 @@
         return h('div', { class: `banner ${members ? '' : 'blood'}` },
           h('h2', {}, members ? 'The Members win' : 'The Murderers win'),
           h('p', {}, club.payout && club.payout.winners.length
-            ? `${club.payout.winners.join(', ')} take the Vault — ${money(club.payout.share)} each.` : ''),
+            ? `${club.payout.winners.join(', ')} take the Vault — ${money(club.payout.share)} points each.` : ''),
           h('p', { class: 'small muted' }, 'Every card is face up and every room is open. Read the Back Room to see how it was done.'));
       }
       if (!club.me.alive) {
@@ -460,11 +520,17 @@
     patch('players', document.getElementById('players'), club.players, (players) => {
       const alive = players.filter((p) => p.alive);
       const gone = players.filter((p) => !p.alive);
+      const fate = (p) => {
+        const how = { murdered: `murdered \u00b7 night ${p.eliminatedDay}`, blackballed: `blackballed \u00b7 day ${p.eliminatedDay}`, resigned: `resigned \u00b7 day ${p.eliminatedDay}` }[p.eliminatedHow];
+        return h('span', { class: 'fate', title: p.role ? null : 'Eliminated in the Last Toast: their card stays face down until the season ends' },
+          how, p.role ? '' : ' \u00b7 card face down');
+      };
       const row = (p) => h('li', { class: `player ${p.alive ? '' : 'dead'}` }, avatar(p.name),
-        h('span', { class: 'pname' }, p.name, p.userId === club.me.userId ? ' (you)' : ''),
+        h('span', { class: 'pwho' },
+          h('span', { class: 'pname' }, p.name, p.userId === club.me.userId ? ' (you)' : ''),
+          !p.alive ? fate(p) : null),
         p.role === 'murderer' ? h('span', { class: 'tag murderer' }, 'Murderer') : null,
-        !p.alive ? h('span', { class: 'tag' }, { murdered: `murdered \u00b7 night ${p.eliminatedDay}`, blackballed: `blackballed \u00b7 day ${p.eliminatedDay}`, resigned: `resigned \u00b7 day ${p.eliminatedDay}` }[p.eliminatedHow]) : null,
-        p.alive && p.role === 'member' && club.status === 'ended' ? h('span', { class: 'tag' }, 'Member') : null);
+        p.role === 'member' && (club.status === 'ended' || !p.alive) ? h('span', { class: 'tag' }, 'Member') : null);
       return [h('h2', {}, `Members · ${alive.length} alive`), h('ul', { class: 'players' }, alive.map(row), gone.map(row))];
     });
 

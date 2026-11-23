@@ -35,14 +35,14 @@ test('murderer count scales with club size', () => {
 test('a club holds at most 25 members and cannot be joined after it opens', () => {
   const { club } = makeClub(25, { start: false });
   assert.throws(() => game.addPlayer(club, { userId: 'extra', name: 'Extra' }), /full/);
-  const { club: open } = makeClub(5);
+  const { club: open } = makeClub(8);
   assert.throws(() => game.addPlayer(open, { userId: 'late', name: 'Late' }), /already opened/);
 });
 
-test('only the host can start, and only with enough members', () => {
-  const { club, ctx } = makeClub(3, { start: false });
-  assert.throws(() => game.startGame(club, 'u0', ctx), /at least 4/);
-  game.addPlayer(club, { userId: 'u3', name: 'Player 3' });
+test('only the host can start, and only with 8 to 25 members', () => {
+  const { club, ctx } = makeClub(7, { start: false });
+  assert.throws(() => game.startGame(club, 'u0', ctx), /at least 8/);
+  game.addPlayer(club, { userId: 'u7', name: 'Player 7' });
   assert.throws(() => game.startGame(club, 'u1', ctx), /Only the host/);
   game.startGame(club, 'u0', ctx);
   assert.strictEqual(club.status, 'active');
@@ -138,7 +138,7 @@ test('three missed Tribunals and you resign', () => {
 });
 
 test('errand answers fill the Vault when the Errand closes', () => {
-  const { club, ctx } = makeClub(5);
+  const { club, ctx } = makeClub(8);
   const q = require('../lib/content').ERRANDS[club.errand.index];
   game.answerErrand(club, 'u0', q.a);
   game.answerErrand(club, 'u1', (q.a + 1) % q.c.length);
@@ -172,32 +172,105 @@ test('a player sees only what they are allowed to', () => {
   assert.ok(!('a' in mv.action) && !('answer' in mv.action));
 });
 
-test('the Last Toast: no murders, and a unanimous Raise ends the season', () => {
-  const { club, ctx } = makeClub(6, { seed: 2 });
-  // Murder down to 5 players.
-  game.advance(club, ctx);
-  game.advance(club, ctx);
-  const m = murderers(club)[0];
-  game.castMurder(club, m.userId, members(club)[0].userId);
-  game.advance(club, ctx);
-  assert.strictEqual(club.endgame, true);
-  assert.strictEqual(club.phase, 'day');
-  game.advance(club, ctx); // → tribunal
+/** Everyone alive votes, spread out so nobody reaches a majority. */
+function scatter(club) {
   const living = club.players.filter((p) => p.alive);
-  living.forEach((p) => game.castToast(club, p.userId, 'raise'));
+  living.forEach((p, i) => game.castVote(club, p.userId, living[(i + 1) % living.length].userId));
+}
+
+/** Everyone alive except `target` votes for `target`. */
+function blackball(club, target) {
+  const living = club.players.filter((p) => p.alive);
+  living.forEach((p) => game.castVote(club, p.userId, p.userId === target.userId ? living.find((x) => x !== p).userId : target.userId));
+}
+
+test('a season lasts half a day per player, rounded up', () => {
+  assert.deepStrictEqual([8, 9, 10, 16, 24, 25].map(game.seasonLength), [4, 5, 5, 8, 12, 13]);
+  const { club } = makeClub(25);
+  assert.strictEqual(club.seasonDays, 13);
+});
+
+test('cards are turned over until 5 remain, then stay face down until the end', () => {
+  const { club, ctx } = makeClub(8, { seed: 4 });
+  const killer = murderers(club)[0];
+  const mem = () => members(club).filter((p) => p.alive);
+
+  game.advance(club, ctx); // Day 1 Tribunal: blackball a Member (8 → 7)
+  const first = mem()[0];
+  blackball(club, first);
+  game.advance(club, ctx);
+  assert.strictEqual(first.revealed, true);
+  assert.match(club.events.findLast((e) => e.type === 'verdict').text, /they were a Member/);
+
+  game.castMurder(club, killer.userId, mem()[0].userId); // night 1 (7 → 6)
+  game.advance(club, ctx);
+  game.advance(club, ctx); // Day 2 Tribunal (6 → 5): still revealed
+  const second = mem()[0];
+  blackball(club, second);
+  game.advance(club, ctx);
+  assert.strictEqual(second.revealed, true);
+  assert.strictEqual(club.endgame, true, 'the Last Toast begins at 5');
+  assert.strictEqual(club.phase, 'day', 'no Back Room in the Last Toast');
+
+  game.advance(club, ctx); // Day 3 Tribunal: blackballed now stays face down
+  const third = mem()[0];
+  blackball(club, third);
+  game.advance(club, ctx);
+  assert.strictEqual(third.alive, false);
+  assert.strictEqual(third.revealed, false);
+  const verdict = club.events.findLast((e) => e.type === 'verdict');
+  assert.match(verdict.text, /face down/);
+  assert.ok(!('role' in verdict.data));
+  const onlooker = club.players.find((p) => p.alive && p.role === 'member');
+  const seen = game.view(club, onlooker.userId, ctx.now).players.find((p) => p.userId === third.userId);
+  assert.strictEqual(seen.role, null, 'other players cannot see the face-down card');
+
+  // Day 4 is the last day of an 8-player season: its Tribunal closes it.
+  assert.strictEqual(club.day, 4);
+  game.advance(club, ctx);
+  scatter(club);
+  game.advance(club, ctx);
+  assert.strictEqual(club.status, 'ended');
+  assert.strictEqual(club.winner, killer.alive ? 'murderers' : 'members');
+  assert.ok(club.players.every((p) => p.revealed), 'every card is turned over at the end');
+});
+
+test('a unanimous Raise a Glass ends the season early', () => {
+  const { club, ctx } = makeClub(8, { seed: 2 });
+  const killer = murderers(club)[0];
+  for (let i = 0; i < 3; i += 1) { // three nights of murder, nobody blackballed: 8 → 5
+    game.advance(club, ctx);
+    scatter(club);
+    game.advance(club, ctx);
+    game.castMurder(club, killer.userId, members(club).find((p) => p.alive).userId);
+    game.advance(club, ctx);
+  }
+  assert.strictEqual(club.endgame, true);
+  game.advance(club, ctx);
+  club.players.filter((p) => p.alive).forEach((p) => game.castToast(club, p.userId, 'raise'));
   game.advance(club, ctx);
   assert.strictEqual(club.status, 'ended');
   assert.strictEqual(club.winner, 'murderers', 'a Murderer was still at the table');
-  assert.deepStrictEqual(club.payout.winners, [m.name]);
+  assert.deepStrictEqual(club.payout.winners, [killer.name]);
 });
 
-test('the Last Toast skips the Back Room after a Pour Another', () => {
-  const { club, ctx } = makeClub(5, { seed: 9 });
-  assert.strictEqual(club.endgame, false);
-  game.advance(club, ctx);
-  game.advance(club, ctx); // tribunal resolves; 5 alive → endgame
-  assert.strictEqual(club.endgame, true);
-  assert.strictEqual(club.phase, 'day');
+test('the last day starts the Last Toast even with more than 5 alive, and closes the season', () => {
+  const { club, ctx } = makeClub(25, { seed: 6 });
+  const killers = murderers(club);
+  while (club.status === 'active') {
+    if (club.phase === 'tribunal') scatter(club);
+    if (club.phase === 'backroom') {
+      const target = members(club).find((p) => p.alive);
+      killers.forEach((k) => game.castMurder(club, k.userId, target.userId));
+    }
+    game.advance(club, ctx);
+  }
+  assert.strictEqual(club.day, 13);
+  // One murder a night for 12 nights, then the final Tribunal must blackball someone.
+  assert.strictEqual(club.players.filter((p) => p.eliminatedHow === 'murdered').length, 12);
+  assert.strictEqual(club.players.filter((p) => p.alive).length, 12);
+  assert.ok(club.events.some((e) => e.type === 'endgame' && /final day/.test(e.text)));
+  assert.strictEqual(club.winner, 'murderers');
 });
 
 test('whole seasons always finish, with consistent results (200 seeded games of 25)', () => {
@@ -229,12 +302,12 @@ test('whole seasons always finish, with consistent results (200 seeded games of 
     const aliveM = club.players.filter((p) => p.alive && p.role === 'murderer').length;
     if (club.winner === 'members') assert.strictEqual(aliveM, 0, `seed ${seed}: members won with murderers alive`);
     else assert.ok(aliveM > 0, `seed ${seed}: murderers won with none alive`);
-    assert.ok(club.day <= 40, `seed ${seed}: season ran ${club.day} days`);
+    assert.ok(club.day <= 13, `seed ${seed}: a 25-player season ran ${club.day} days`);
   }
 });
 
 test('the server-side clock moves phases on time and catches up after downtime', () => {
-  const { club, ctx } = makeClub(6);
+  const { club, ctx } = makeClub(8);
   assert.strictEqual(game.tick(club, ctx), false);
   ctx.now += 3 * 60000; // Errands end
   assert.strictEqual(game.tick(club, ctx), true);

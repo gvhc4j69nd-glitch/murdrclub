@@ -102,9 +102,20 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
       id: club.id, name: club.name, code: club.code, status: club.status, phase: club.phase, day: club.day,
       players: club.players.length, alive: club.players.filter((p) => p.alive).length,
       isHost: club.hostId === userId, myRole: me && club.status !== 'lobby' ? me.role : null, myAlive: me ? me.alive : null,
-      winner: club.winner, pace: club.settings.pace,
+      winner: club.winner, pace: club.settings.pace, visibility: club.visibility,
+      seasonDays: club.status === 'lobby' ? game.seasonLength(club.players.length) : club.seasonDays,
     };
   }
+
+  const hostName = (club) => (game.findPlayer(club, club.hostId) || {}).name || '';
+  const lobbyCard = (club) => ({
+    id: club.id, name: club.name, host: hostName(club), players: club.players.length,
+    pace: club.settings.pace, timeZone: club.settings.timeZone, seasonDays: game.seasonLength(club.players.length),
+  });
+  const findUserByName = (raw) => {
+    const lower = String(raw || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    return Object.values(store.data.users).find((u) => u.nameLower === lower) || null;
+  };
 
   async function handleApi(req, res, url, user, token) {
     const p = url.pathname;
@@ -152,7 +163,18 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
     if (p === '/api/clubs' && method === 'GET') {
       const mine = Object.values(store.data.clubs).filter((c) => game.findPlayer(c, user.id));
       mine.sort((a, b) => b.createdAt - a.createdAt);
-      return sendJson(res, 200, { clubs: mine.map((c) => clubSummary(c, user.id)) });
+      const invitations = Object.values(store.data.clubs)
+        .filter((c) => c.status === 'lobby' && game.isInvited(c, user.id) && !game.findPlayer(c, user.id))
+        .map(lobbyCard);
+      return sendJson(res, 200, { clubs: mine.map((c) => clubSummary(c, user.id)), invitations });
+    }
+    if (p === '/api/clubs/open' && method === 'GET') {
+      const open = Object.values(store.data.clubs)
+        .filter((c) => c.visibility === 'public' && c.status === 'lobby' && c.players.length < game.MAX_PLAYERS && !game.findPlayer(c, user.id))
+        .sort((a, b) => b.players.length - a.players.length)
+        .slice(0, 50)
+        .map(lobbyCard);
+      return sendJson(res, 200, { clubs: open });
     }
     if (p === '/api/clubs' && method === 'POST') {
       const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, 40) || `${user.name}'s Club`;
@@ -161,15 +183,32 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
       const mins = (v, d) => Math.max(1, Math.min(120, Math.round(Number(v) || d)));
       const f = body.fastMinutes || {};
       const settings = { pace, timeZone, fastMinutes: { day: mins(f.day, 3), tribunal: mins(f.tribunal, 2), backroom: mins(f.backroom, 1) } };
-      const club = game.newClub({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, settings, now: clock() });
+      const visibility = body.visibility === 'public' ? 'public' : 'private';
+      const club = game.newClub({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, settings, visibility, now: clock() });
       store.data.clubs[club.id] = club;
       store.save();
       return sendJson(res, 200, { club: clubSummary(club, user.id) });
     }
+    const decline = p.match(/^\/api\/invitations\/([A-Za-z0-9_-]{6,20})\/decline$/);
+    if (decline && method === 'POST') {
+      const club = store.data.clubs[decline[1]];
+      if (club) { game.withdrawInvite(club, user.id); store.save(); }
+      return sendJson(res, 200, { ok: true });
+    }
     if (p === '/api/clubs/join' && method === 'POST') {
-      const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const club = Object.values(store.data.clubs).find((c) => c.code === code);
-      if (!club) return sendJson(res, 404, { error: 'No club has that invitation code.' });
+      let club;
+      if (body.code) {
+        // The invitation code works for private and public clubs alike.
+        const code = String(body.code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        club = Object.values(store.data.clubs).find((c) => c.code === code);
+        if (!club) return sendJson(res, 404, { error: 'No club has that invitation code.' });
+      } else {
+        // Without a code: a public club, or a private one you were invited to.
+        club = store.data.clubs[String(body.id || '')];
+        if (!club || (club.visibility !== 'public' && !game.isInvited(club, user.id))) {
+          return sendJson(res, 404, { error: 'That club is invitation only.' });
+        }
+      }
       game.addPlayer(club, { userId: user.id, name: user.name });
       store.save();
       return sendJson(res, 200, { club: clubSummary(club, user.id) });
@@ -190,6 +229,16 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(__dirname, 'dat
       case 'start': game.startGame(club, user.id, c); break;
       case 'leave': game.removePlayer(club, user.id); store.save(); return sendJson(res, 200, { ok: true });
       case 'bots': game.addBots(club, user.id, body.count, rng); break;
+      case 'invite': {
+        const invitee = findUserByName(body.name);
+        if (!invitee) return sendJson(res, 404, { error: 'No player has that name. Ask them to create an account first.' });
+        game.invitePlayer(club, user.id, invitee, c.now);
+        break;
+      }
+      case 'uninvite':
+        if (user.id !== club.hostId) return sendJson(res, 403, { error: 'Only the host can withdraw invitations.' });
+        game.withdrawInvite(club, String(body.userId || ''));
+        break;
       case 'advance': game.hostAdvance(club, user.id, c); break;
       case 'errand': game.answerErrand(club, user.id, body.choice); break;
       case 'vote': game.castVote(club, user.id, String(body.targetId || '')); break;

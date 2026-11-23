@@ -101,6 +101,70 @@ test('a club can be founded, filled, and played to the end over HTTP', async () 
   }
 });
 
+test('private clubs are invitation only; public clubs are listed; no late joiners', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'murdrclub-'));
+  const { server } = createApp({ dataDir, tickMs: 0 });
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const host = client(base);
+    const friend = client(base);
+    const stranger = client(base);
+    await host('/api/signup', { name: 'Marple', password: 'st mary mead' });
+    await friend('/api/signup', { name: 'Hastings', password: 'mon ami 123' });
+    const strangerId = (await stranger('/api/signup', { name: 'Ratchett', password: 'orient express' })).body.user.id;
+
+    const priv = (await host('/api/clubs', { name: 'Secret Supper' })).body.club;
+    assert.strictEqual(priv.visibility, 'private', 'clubs are private by default');
+    assert.strictEqual((await stranger('/api/clubs/open')).body.clubs.length, 0, 'private clubs are not listed');
+    assert.strictEqual((await stranger('/api/clubs/join', { id: priv.id })).status, 404, 'no joining a private club without an invitation');
+
+    // Invite by name.
+    assert.strictEqual((await host(`/api/clubs/${priv.id}/invite`, { name: 'nobody here' })).status, 404);
+    assert.strictEqual((await friend(`/api/clubs/${priv.id}`)).status, 404);
+    assert.strictEqual((await host(`/api/clubs/${priv.id}/invite`, { name: 'hastings' })).status, 200);
+    const invites = (await friend('/api/clubs')).body.invitations;
+    assert.deepStrictEqual(invites.map((c) => c.name), ['Secret Supper']);
+    assert.strictEqual((await friend('/api/clubs/join', { id: priv.id })).status, 200);
+    assert.strictEqual((await friend('/api/clubs')).body.invitations.length, 0);
+
+    // Only the host sees the private code.
+    assert.ok((await host(`/api/clubs/${priv.id}`)).body.club.code);
+    assert.strictEqual((await friend(`/api/clubs/${priv.id}`)).body.club.code, null);
+    assert.strictEqual((await friend(`/api/clubs/${priv.id}/invite`, { name: 'Ratchett' })).status, 403);
+
+    // Declining an invitation.
+    await host(`/api/clubs/${priv.id}/invite`, { name: 'Ratchett' });
+    assert.strictEqual((await stranger(`/api/invitations/${priv.id}/decline`, {})).status, 200);
+    assert.strictEqual((await stranger('/api/clubs/join', { id: priv.id })).status, 404);
+    assert.strictEqual((await host(`/api/clubs/${priv.id}`)).body.club.invites.length, 0);
+
+    // A public club is listed and joinable without a code.
+    const pub = (await host('/api/clubs', { name: 'Open House', visibility: 'public' })).body.club;
+    const open = (await stranger('/api/clubs/open')).body.clubs;
+    assert.deepStrictEqual(open.map((c) => c.name), ['Open House']);
+    assert.strictEqual(open[0].host, 'Marple');
+    assert.strictEqual((await stranger('/api/clubs/join', { id: pub.id })).status, 200);
+    assert.ok((await stranger(`/api/clubs/${pub.id}`)).body.club.code, 'members of a public club can see its code');
+
+    // No late joiners: 8 needed to start, nobody after.
+    assert.strictEqual((await host(`/api/clubs/${priv.id}/start`, {})).status, 409);
+    await host(`/api/clubs/${priv.id}/bots`, { count: 6 });
+    const started = await host(`/api/clubs/${priv.id}/start`, {});
+    assert.strictEqual(started.status, 200);
+    assert.strictEqual(started.body.club.seasonDays, 4);
+    assert.strictEqual((await host(`/api/clubs/${priv.id}/invite`, { name: 'Ratchett' })).status, 409);
+    const code = (await host(`/api/clubs/${priv.id}`)).body.club.code;
+    const late = await stranger('/api/clubs/join', { code });
+    assert.strictEqual(late.status, 409);
+    assert.match(late.body.error, /No late joiners/);
+    assert.ok(strangerId);
+  } finally {
+    await new Promise((r) => server.close(r));
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('the club survives a restart', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'murdrclub-'));
   try {

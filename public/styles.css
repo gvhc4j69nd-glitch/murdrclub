@@ -16,6 +16,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: radial-gradient(ellipse at top, #1d1215 0%, var(--bg) 60%) fixed, var(--bg);
@@ -121,6 +122,8 @@ label { display: block; font-size: .875rem; color: var(--muted); margin: 0 0 4px
 .player { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; }
 .player.dead { opacity: .55; }
 .player.dead .pname { text-decoration: line-through; }
+.pwho { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fate { font-size: .72rem; color: var(--muted); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .8rem; flex: none; color: #120e0f; }
 .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag { font-size: .7rem; color: var(--muted); }
