@@ -1,7 +1,7 @@
 {
   "name": "murdrclub",
-  "version": "0.1.0",
-  "description": "MurdrClub (murdrclub.com): an online murder-mystery social deduction game for up to 25 players.",
+  "version": "0.2.0",
+  "description": "MurdrClub (murdrclub.com): a ruthless online card game of murder and mayhem for four players.",
   "main": "server.js",
   "private": true,
   "homepage": "https://murdrclub.com",

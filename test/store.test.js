@@ -48,31 +48,42 @@ for (const backend of backends()) {
     return [a, b];
   };
 
-  test(`${backend.name}: simultaneous votes through two servers are all kept`, async () => {
+  test(`${backend.name}: four heirs acting at once through two servers are all kept`, async () => {
     const env = await backend.setup();
     let now = Date.UTC(2026, 10, 24, 12);
     const [a, b] = await twoServers(env, () => now);
     try {
       const [baseA, baseB] = [await listen(a), await listen(b)];
-      const players = [];
-      for (let i = 0; i < 12; i += 1) {
+      const heirs = [];
+      for (let i = 0; i < 4; i += 1) {
         const c = client(i % 2 ? baseB : baseA);
-        await c('/api/signup', { name: `Player ${i}`, password: 'password123' });
-        players.push(c);
+        await c('/api/signup', { name: `Heir ${i}`, password: 'password123' });
+        heirs.push(c);
       }
-      const { id } = (await players[0]('/api/clubs', { name: 'Crowded House', visibility: 'public', pace: 'fast' })).body.club;
-      await Promise.all(players.slice(1).map((c) => c('/api/clubs/join', { id })));
-      const started = await players[0](`/api/clubs/${id}/start`, {});
-      assert.strictEqual(started.body.club.players.length, 12, 'all 11 joins landed, though they arrived together');
-      await players[0](`/api/clubs/${id}/advance`, {});
+      const { id } = (await heirs[0]('/api/clubs', { name: 'Crowded House', visibility: 'public' })).body.club;
+      await Promise.all(heirs.slice(1).map((c) => c('/api/clubs/join', { id })));
+      const started = await heirs[0](`/api/clubs/${id}/start`, {});
+      assert.strictEqual(started.status, 200, 'all three joins landed, though they arrived together');
 
-      const ids = await Promise.all(players.map(async (c) => (await c('/api/me')).body.user.id));
-      // Everyone votes for player 1; player 1 votes for player 0.
-      const victimOf = (i) => (i === 1 ? ids[0] : ids[1]);
-      const results = await Promise.all(players.map((c, i) => c(`/api/clubs/${id}/vote`, { targetId: victimOf(i) })));
+      // Get through the Day, one turn at a time.
+      for (let i = 0; i < 4; i += 1) {
+        const v = (await heirs[0](`/api/clubs/${id}`)).body.club;
+        const who = await Promise.all(heirs.map(async (c) => (await c('/api/me')).body.user.id));
+        await heirs[who.indexOf(v.turn)](`/api/clubs/${id}/endturn`, {});
+      }
+      // Night: all four play into the Shadows at the same moment.
+      const views = await Promise.all(heirs.map(async (c) => (await c(`/api/clubs/${id}`)).body.club));
+      assert.ok(views.every((v) => v.phase === 'night'));
+      const results = await Promise.all(heirs.map((c, i) => {
+        const bluff = views[i].me.hand.find((x) => x.kind !== 'weapon');
+        return c(`/api/clubs/${id}/night`, { cardId: bluff.id });
+      }));
       assert.ok(results.every((r) => r.status === 200), JSON.stringify(results.map((r) => r.body && r.body.error)));
-      const after = (await players[5](`/api/clubs/${id}`)).body.club;
-      assert.strictEqual(after.action.votesCast, 12, 'no vote was lost to a concurrent write');
+      const after = (await heirs[2](`/api/clubs/${id}`)).body.club;
+      assert.strictEqual(after.phase, 'inquest', 'every card landed, so the Night resolved without waiting');
+      // And four simultaneous votes.
+      await Promise.all(heirs.map((c) => c(`/api/clubs/${id}/vote`, { targetId: null })));
+      assert.strictEqual((await heirs[1](`/api/clubs/${id}`)).body.club.round, 2);
     } finally {
       await new Promise((r) => a.server.close(r));
       await new Promise((r) => b.server.close(r));
@@ -88,18 +99,20 @@ for (const backend of backends()) {
       const base = await listen(a);
       const host = client(base);
       await host('/api/signup', { name: 'Timekeeper', password: 'password123' });
-      const { id } = (await host('/api/clubs', { name: 'Clockwork', pace: 'fast', fastMinutes: { day: 1, tribunal: 1, backroom: 1 } })).body.club;
-      await host(`/api/clubs/${id}/bots`, { count: 7 });
+      const { id } = (await host('/api/clubs', { name: 'Clockwork', mode: 'live' })).body.club;
+      await host(`/api/clubs/${id}/bots`, { count: 3 });
       await host(`/api/clubs/${id}/start`, {});
-
+      const v0 = (await host(`/api/clubs/${id}`)).body.club;
+      // Bots move instantly, so the game is waiting on the human (in the Day or at Night).
       await Promise.all([a.tickAll(), b.tickAll()]);
-      assert.strictEqual((await host(`/api/clubs/${id}`)).body.club.phase, 'day', 'nothing is due yet');
+      assert.strictEqual((await host(`/api/clubs/${id}`)).body.club.events.length, v0.events.length, 'nothing is due yet');
 
-      now += 61 * 1000; // Errands are over
+      now = v0.phaseEndsAt + 1000; // the human runs out of time
       await Promise.all([a.tickAll(), b.tickAll(), a.tickAll(), b.tickAll()]);
-      const club = (await host(`/api/clubs/${id}`)).body.club;
-      assert.strictEqual(club.phase, 'tribunal');
-      assert.strictEqual(club.events.filter((e) => e.type === 'errand').length, 1, 'the Errand closed once, not once per timer');
+      const v1 = (await host(`/api/clubs/${id}`)).body.club;
+      const timeouts = v1.events.filter((e) => e.type === 'timeout').length;
+      assert.ok(v1.events.length > v0.events.length, 'the game moved on');
+      assert.ok(timeouts <= 1, 'one deadline, handled once, not once per timer');
     } finally {
       await new Promise((r) => a.server.close(r));
       await new Promise((r) => b.server.close(r));

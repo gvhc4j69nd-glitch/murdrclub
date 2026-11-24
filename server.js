@@ -18,7 +18,6 @@ const game = require('./lib/game');
 const auth = require('./lib/auth');
 const { createPgStore, createFileStore } = require('./lib/store');
 const db = require('./lib/db');
-const { isValidTimeZone } = require('./lib/schedule');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -117,7 +116,7 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
     ticking = true;
     try {
       for (const id of await store.dueClubIds(clock())) {
-        await store.withClub(id, (club) => { if (club && club.status === 'active') game.tick(club, ctx()); }, { skipLocked: true });
+        await store.withClub(id, (club) => { if (isCurrent(club) && club.status === 'active') game.tick(club, ctx()); }, { skipLocked: true });
       }
     } catch (err) {
       log.error('Phase timer failed:', err.message);
@@ -128,22 +127,23 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
   const timer = tickMs ? setInterval(tickAll, tickMs) : null;
   if (timer) timer.unref();
 
-  function clubSummary(club, userId) {
-    const me = game.findPlayer(club, userId);
+  // Tables from before the card game have a different shape; they are left alone.
+  const isCurrent = (t) => Boolean(t && t.kind === 'cards');
+
+  function clubSummary(t, userId) {
+    const me = game.find(t, userId);
     return {
-      id: club.id, name: club.name, code: club.code, status: club.status, phase: club.phase, day: club.day,
-      players: club.players.length, alive: club.players.filter((p) => p.alive).length,
-      isHost: club.hostId === userId, myRole: me && club.status !== 'lobby' ? me.role : null, myAlive: me ? me.alive : null,
-      winner: club.winner, pace: club.settings.pace, visibility: club.visibility,
-      seasonDays: club.status === 'lobby' ? game.seasonLength(club.players.length) : club.seasonDays,
+      id: t.id, name: t.name, code: t.code, status: t.status, phase: t.phase, round: t.round, rounds: game.ROUNDS,
+      players: t.players.length, alive: t.players.filter((p) => p.alive).length,
+      isHost: t.hostId === userId, myAlive: me ? me.alive : null,
+      myTurn: Boolean(me && t.status === 'active' && game.currentTurn(t) === me),
+      won: t.status === 'ended' ? t.winner === userId : null,
+      mode: t.mode, visibility: t.visibility,
     };
   }
 
-  const hostName = (club) => (game.findPlayer(club, club.hostId) || {}).name || '';
-  const lobbyCard = (club) => ({
-    id: club.id, name: club.name, host: hostName(club), players: club.players.length,
-    pace: club.settings.pace, timeZone: club.settings.timeZone, seasonDays: game.seasonLength(club.players.length),
-  });
+  const hostName = (t) => (game.find(t, t.hostId) || {}).name || '';
+  const lobbyCard = (t) => ({ id: t.id, name: t.name, host: hostName(t), players: t.players.length, seats: game.SEATS, mode: t.mode });
 
   async function startSession(req, res, u) {
     const t = await auth.createSession(store, u.id);
@@ -190,30 +190,26 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
     // ---- clubs
     if (p === '/api/clubs' && method === 'GET') {
       const [mine, invited] = await Promise.all([store.clubsForUser(user.id), store.invitationsFor(user.id)]);
-      const invitations = invited.filter((c) => !game.findPlayer(c, user.id)).map(lobbyCard);
-      return sendJson(res, 200, { clubs: mine.map((c) => clubSummary(c, user.id)), invitations });
+      const invitations = invited.filter((c) => isCurrent(c) && !game.find(c, user.id)).map(lobbyCard);
+      return sendJson(res, 200, { clubs: mine.filter(isCurrent).map((c) => clubSummary(c, user.id)), invitations });
     }
     if (p === '/api/clubs/open' && method === 'GET') {
-      const open = (await store.openClubs(60)).filter((c) => !game.findPlayer(c, user.id)).slice(0, 50).map(lobbyCard);
+      const open = (await store.openClubs(60)).filter((c) => isCurrent(c) && !game.find(c, user.id)).slice(0, 50).map(lobbyCard);
       return sendJson(res, 200, { clubs: open });
     }
     if (p === '/api/clubs' && method === 'POST') {
-      const name = cleanName(body.name).slice(0, 40) || `${user.name}'s Club`;
-      const pace = body.pace === 'fast' ? 'fast' : 'daily';
-      const timeZone = isValidTimeZone(body.timeZone) ? body.timeZone : 'UTC';
-      const mins = (v, d) => Math.max(1, Math.min(120, Math.round(Number(v) || d)));
-      const f = body.fastMinutes || {};
-      const settings = { pace, timeZone, fastMinutes: { day: mins(f.day, 3), tribunal: mins(f.tribunal, 2), backroom: mins(f.backroom, 1) } };
+      const name = cleanName(body.name).slice(0, 40) || `${user.name}'s Table`;
+      const mode = body.mode === 'timed' ? 'timed' : 'live';
       const visibility = body.visibility === 'public' ? 'public' : 'private';
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const club = game.newClub({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, settings, visibility, now: clock() });
+        const club = game.newTable({ id: newId(), code: newCode(), name, host: { userId: user.id, name: user.name }, mode, visibility, now: clock() });
         if (await store.insertClub(club)) return sendJson(res, 200, { club: clubSummary(club, user.id) });
       }
       return sendJson(res, 503, { error: 'Could not create the club. Please try again.' });
     }
     const decline = p.match(/^\/api\/invitations\/([A-Za-z0-9_-]{6,20})\/decline$/);
     if (decline && method === 'POST') {
-      await store.withClub(decline[1], (club) => { if (club) game.withdrawInvite(club, user.id); });
+      await store.withClub(decline[1], (club) => { if (isCurrent(club)) game.withdrawInvite(club, user.id); });
       return sendJson(res, 200, { ok: true });
     }
     if (p === '/api/clubs/join' && method === 'POST') {
@@ -221,10 +217,10 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
       // a code: a public club, or a private one you were invited to.
       const byCode = Boolean(body.code);
       const id = byCode ? await store.clubIdByCode(String(body.code).toUpperCase().replace(/[^A-Z0-9]/g, '')) : String(body.id || '');
-      if (!id && byCode) return sendJson(res, 404, { error: 'No club has that invitation code.' });
+      if (!id && byCode) return sendJson(res, 404, { error: 'No table has that invitation code.' });
       const out = await store.withClub(id, (club) => {
-        if (!club) return { status: 404, body: { error: byCode ? 'No club has that invitation code.' : 'That club is invitation only.' } };
-        if (!byCode && club.visibility !== 'public' && !game.isInvited(club, user.id)) return { status: 404, body: { error: 'That club is invitation only.' } };
+        if (!isCurrent(club)) return { status: 404, body: { error: byCode ? 'No table has that invitation code.' : 'That table is invitation only.' } };
+        if (!byCode && club.visibility !== 'public' && !game.isInvited(club, user.id)) return { status: 404, body: { error: 'That table is invitation only.' } };
         game.addPlayer(club, { userId: user.id, name: user.name });
         return { status: 200, body: { club: clubSummary(club, user.id) } };
       });
@@ -242,7 +238,7 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
     const invitee = action === 'invite' ? await store.findUserByName(cleanName(body.name).toLowerCase()) : null;
 
     const out = await store.withClub(m[1], (club) => {
-      if (!club || !game.findPlayer(club, user.id)) return { status: 404, body: { error: 'Club not found.' } };
+      if (!isCurrent(club) || !game.find(club, user.id)) return { status: 404, body: { error: 'Table not found.' } };
       const c = ctx();
       if (club.status === 'active') game.tick(club, c);
       if (!action) return { status: 200, body: { club: game.view(club, user.id, c.now) } };
@@ -259,12 +255,18 @@ function createApp({ store, clock = () => Date.now(), rng = Math.random, tickMs 
           if (user.id !== club.hostId) return { status: 403, body: { error: 'Only the host can withdraw invitations.' } };
           game.withdrawInvite(club, String(body.userId || ''));
           break;
-        case 'advance': game.hostAdvance(club, user.id, c); break;
-        case 'errand': game.answerErrand(club, user.id, body.choice); break;
-        case 'vote': game.castVote(club, user.id, String(body.targetId || '')); break;
-        case 'toast': game.castToast(club, user.id, body.choice); break;
-        case 'murder': game.castMurder(club, user.id, String(body.targetId || '')); break;
-        case 'messages': game.postMessage(club, user.id, body.channel, body.text, c.now); break;
+        case 'play': game.playCard(club, user.id, String(body.cardId || ''), body.targetId ? String(body.targetId) : null, c); break;
+        case 'endturn': game.endTurnAction(club, user.id, c); break;
+        case 'night':
+          game.playNight(club, user.id, String(body.cardId || ''), body.targetId ? String(body.targetId) : null);
+          game.settle(club, c);
+          break;
+        case 'vote':
+          game.castVote(club, user.id, body.targetId ? String(body.targetId) : null);
+          game.settle(club, c);
+          break;
+        case 'pact': game.pact(club, user.id, String(body.op || ''), body.targetId ? String(body.targetId) : null, c); break;
+        case 'messages': game.postMessage(club, user.id, body.channel, body.text, body.to ? String(body.to) : null, c.now); break;
         default: return { status: 404, body: { error: 'Not found.' } };
       }
       return { status: 200, body: { club: game.view(club, user.id, c.now) } };

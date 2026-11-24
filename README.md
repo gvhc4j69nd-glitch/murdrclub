@@ -1,34 +1,103 @@
-# MurdrClub
+# MurdrClub: The Reading of the Will
 
-**murdrclub.com**: an online murder-mystery game for 8 to 25 friends. A few
-players are secretly **Murderers**. Every night they murder a **Member**. Every
-day the Club meets at **the Tribunal** to blackball the person it suspects. The
-Members win by unmasking every Murderer. The Murderers win if any of them
-survive to the end. A season lasts **half a day per player**, so 8 players
-play 4 days and 25 play 13. The Vault is counted in **points**, not money.
+**murdrclub.com**: a ruthless online card game for four.
 
-This is the MVP. There is no build step: plain Node on the server (its one
-dependency is `pg`, for Postgres) and plain HTML, CSS and JS in the browser.
+Four heirs wait out eight stormy nights at the Club for the reading of the
+will. The fortune goes to the richest heir still breathing, so the obvious
+strategy is to make sure nobody else is. Bank your bequests, blackmail your
+rivals, forge the will, betray your partner. When the lights go out, play a
+card into the Shadows. Nobody sees who struck.
 
 ```sh
 npm install
 npm start        # http://localhost:4400
-npm test         # rules engine, Club Time, storage, and end-to-end HTTP games
+npm test         # rules, bots, storage, and whole games over HTTP
 ```
 
-**Storage.** With `DATABASE_URL` set, everything is kept in Postgres. Without
-it, for local development, the server saves to `data/murdrclub.json`. To run
-the tests against Postgres as well as the file store:
+To try it alone: set a table, press **Fill seats with bots**, and deal.
 
-```sh
-TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/murdrclub_test npm test
-```
+## How a game works
 
-Each test uses its own throwaway schema, so any database you can write to will
-do.
+**Four heirs, eight rounds.** Each heir starts with 4 Blood, 5 cards and an
+allowance of 3 Fortune. Each round has three parts:
 
-To try a whole game alone: create a **Fast** club, add at least 7 practice
-bots, open the club, and use **End phase now** to move through the phases.
+| Phase | How | What happens |
+|---|---|---|
+| **Day** | In turn, in the open | Draw 2 cards, play up to 2 Day cards, end your turn. Turn order snakes (1-2-3-4, then 4-3-2-1) so the last to move goes first next round. |
+| **Night** | Everyone at once, face down | Every heir plays exactly one card into the Shadows: a weapon aimed at someone, a defense, or anything else as a bluff. Attacks are resolved anonymously. The Proprietor names the weapon, never the attacker. |
+| **Inquest** | Public vote | Accuse an heir. A majority of the living arrests them: a fine of 3, their whole hand thrown out, Suspicion wiped, and the next Night in a cell. |
+
+**Winning.** If one heir is left alive, they inherit at once. If nobody
+survives, the cat does. Otherwise the will is read after round 8: the living
+heir with the most Fortune (bequests plus coins) wins. The most infamous
+living heir first gets +4, because the Club rewards ruthlessness. Ties go to
+the less suspicious heir, and then are drawn by lot.
+
+**Murdered heirs are out.** Their hand and Estate are lost. They can watch
+but can't play, vote or talk at the table.
+
+### The deck (72 cards)
+
+| Weapons (20), Night | Defenses (16) | Schemes (20), Day | Inheritance (16), Day |
+|---|---|---|---|
+| Dagger ×5: 1 wound, silent | Alibi ×4: Night, cancels one attack; covers your Pact partner too | Blackmail ×4: take 3 Fortune; +1 Infamy, +1 Suspicion | Bequest worth 1, 2, 3 or 4 ×4 each, played face down into your Estate. Others see how many you have, not their value. |
+| Poison ×4: 1 wound now, 1 more at the next dawn unless cured; gets past Bodyguards | Bodyguard ×4: Day, takes the next wound | Frame ×3: give an heir 2 Suspicion, shed up to 2 of yours | |
+| Candlestick ×4: 1 wound, victim drops 2 cards | Antidote ×3: Day, cures Poison or heals 1 | Forged Will ×3: swap your cheapest bequest for a random one of theirs | |
+| Rope ×4: 1 wound; against an heir on their last Blood it ignores Bodyguards | Secret Passage ×3: Night, the first attack on you goes to the heir on your left | Search ×3: secretly see an heir's hand and last night's card | |
+| Revolver ×3: 2 wounds, but loud: the shooter is named and gains 2 Suspicion | Locked Door ×2: Night, cancels every attack on you | Pickpocket ×3: take a random card from an heir | |
+| | | Power Cut ×2: every hand passes left | |
+| | | Fire in the Library ×2: everyone drops 2 random cards | |
+
+### Ruthlessness
+
+- **Pacts:** two heirs can seal a Pact at any time. While it lasts, either
+  partner's Alibi covers both. Attacking your own partner is a **stab in the
+  back**: double wounds, +3 Infamy, the Pact ends, and everyone hears about
+  it.
+- **Infamy:** Blackmail and betrayal earn Infamy in public. Each murder earns
+  +2 Infamy **in secret**, revealed at the Reading, where the most infamous
+  heir collects +4 Fortune.
+- **Suspicion:** loud crimes and Blackmail raise it, and it's what the Inquest
+  votes on. Frame shifts it onto somebody else.
+
+### Modes
+
+| Mode | Day turn | Night | Inquest |
+|---|---|---|---|
+| **Live** | 45 seconds | 30 seconds | 30 seconds |
+| **Timed** | up to 1 day | up to 1 day | up to 1 day |
+
+In both modes a phase ends as soon as everyone has acted. Bots act instantly.
+If an heir runs out of time, their turn ends; at Night, a random card from
+their hand is lost as a bluff; at the Inquest, they abstain.
+
+### Tables
+
+- **Private** (the default): invitation only. The host shares the code or
+  link privately, or invites players by name, and the invitation appears on
+  their My tables page. Only the host sees a private table's code.
+- **Public:** listed under Open tables for anyone to take a seat.
+- Exactly four seats. Bots fill empty ones. **No late joiners.**
+- **Chat:** the Table (everyone) and Whispers (between two heirs). At the end,
+  every whisper, every Estate and every card played into the Shadows each
+  Night is revealed.
+
+## Balance
+
+`test/game.test.js` plays 500 seeded all-bot games on every test run. A
+longer run of 6,000 games, at the time of writing, gave:
+
+| | |
+|---|---|
+| Wins by seat | 23–26% each |
+| Decided at the Reading / last heir standing / nobody survives | 75% / 25% / under 1% |
+| Murders per game | 2.1 (first usually on night 3) |
+| Arrests per game | 3.3 |
+
+Two rules came out of balance testing. The **snake turn order** spreads the
+advantage of moving first. The **starting allowance** gives everyone something
+to Blackmail on the first turn; before it, late movers in round 1 were the
+only ones who could Blackmail, and they became the obvious targets.
 
 ## Deploying on Railway
 
@@ -46,46 +115,27 @@ bots, open the club, and use **End phase now** to move through the phases.
    `mc_sessions`, `mc_clubs`) are created automatically on first start.
 5. Under Settings → Networking, generate a domain or add `murdrclub.com`.
 
-If `DATABASE_URL` is mistyped, the deploy fails with a message saying so,
-rather than quietly running without the database. If it is missing
-altogether, the server falls back to the file store and warns that
-everything will be wiped on the next deploy.
+If `DATABASE_URL` is mistyped, the deploy fails with a message saying so. If
+it is missing altogether, the server falls back to a local file and warns
+that everything will be wiped on the next deploy. Nothing is kept in server
+memory, so more than one replica can run.
 
-Nothing is kept in server memory, so you can raise the replica count:
-requests lock the club's row while they change it, and the phase timers on
-different replicas skip clubs another replica is already handling.
+Accounts carry over from the earlier version of the game. Tables from that
+version are ignored and no longer listed.
 
-## What the MVP does
+**Storage locally:** without `DATABASE_URL` the server saves to
+`data/murdrclub.json`. To run the tests against Postgres too:
 
-| Area | In the MVP |
-|---|---|
-| Accounts | Name and password (scrypt), HttpOnly session cookie |
-| Clubs | 8–25 members. **Private** (the default): invitation only. The host sends the code or link privately, or invites registered players by name, and the invitation appears on their My clubs page. Only the host can see a private club's code. **Public**: listed under Open clubs for anyone to join. **No late joiners**: nobody joins after the season starts. Practice bots available. |
-| Season length | `ceil(players × 0.5)` days, fixed when the club opens. Shown as "Day 3 of 13". |
-| Roles | Membership cards dealt at random: 1 Murderer with 8–9 players, 2 at 10–13, 3 at 14–19, 4 at 20–25. Murderers know each other. |
-| Daily cycle | **Errands** (until 18:00) → **The Tribunal** (until 21:00) → **The Back Room** (until 08:00), in the club's own time zone and steady through daylight-saving changes. Fast clubs use minutes instead, for testing. |
-| Errands | One trivia question a day. Each correct answer adds 100 points to **the Vault**. |
-| The Tribunal | Secret votes that can be changed until the deadline. A blackballing needs a **majority of the living**; otherwise the Club is Undecided. Every ballot goes on the record. |
-| Revealing cards | The card of anyone eliminated (blackballed, murdered or resigned) is turned over **until only 5 players remain**. After that, cards stay face down until the season ends, when every card is revealed. |
-| The Back Room | Murderers vote on a victim (most votes wins, ties drawn by lot), plus a private chat. The victim is announced at dawn by the Proprietor. |
-| Strikes | Missing 3 Tribunals means the player resigns their membership. |
-| The Last Toast | Starts when 5 or fewer are alive, **or** on the season's final day, whichever comes first. There are no more murders, and each Tribunal blackballs someone (most votes; ties drawn by lot) unless every survivor chooses **Raise a Glass**. The final day's Tribunal closes the season. If a Murderer is still alive at the end, the Murderers take the Vault. Otherwise the surviving Members share it. |
-| Chat | **The Lounge** (everyone), **the Back Room** (Murderers only), **the Cellar** (the departed only). After the season ends, every room and every card opens up for the recap. |
-| Host | Starts the season, adds bots, and can **End phase now** |
-
-### What each player can see
-
-The server works out each player's view in `game.view()` and sends only that.
-A Member's browser never receives anyone else's role, the Back Room chat, the
-Murderers' picks, or the Errand's answer key. There are tests for this.
+```sh
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/murdrclub_test npm test
+```
 
 ## Layout
 
 ```
-server.js          HTTP server and API; a timer moves clubs to their next phase
-lib/game.js        the rules engine: pure functions on a club object
-lib/schedule.js    Club Time: the next 18:00 / 21:00 / 08:00 in a time zone
-lib/content.js     Errand questions, murder notices, bot names
+server.js          HTTP server and API; a timer handles deadlines
+lib/game.js        the rules engine and the bots: pure functions on a table object
+lib/content.js     the cards, murder notices, bot names
 lib/auth.js        passwords and sessions
 lib/store.js       storage: Postgres, or a local JSON file in development
 lib/db.js          finding and connecting to Postgres
@@ -95,35 +145,31 @@ test/              node:test suites
 
 ## API
 
-All POSTs send JSON (`Content-Type: application/json`). That requirement is the
-CSRF guard.
+All POSTs send JSON (`Content-Type: application/json`), which is the CSRF
+guard. The URLs still say `clubs`; a club is a table.
 
 ```
 POST /api/signup  /api/login  /api/logout      GET /api/me
-GET  /api/clubs                your clubs + invitations waiting for you
-GET  /api/clubs/open           public clubs still in the lobby
-POST /api/clubs {name, visibility: private|public, pace, timeZone, fastMinutes}
-POST /api/clubs/join {code} | {id}   (id: public clubs, or private ones you were invited to)
-POST /api/invitations/:clubId/decline
-GET  /api/clubs/:id            the club as you are allowed to see it
-POST /api/clubs/:id/start | leave | bots {count} | advance | invite {name} | uninvite {userId}
-POST /api/clubs/:id/errand {choice} | vote {targetId} | toast {choice} | murder {targetId}
-POST /api/clubs/:id/messages {channel: lounge|backroom|cellar, text}
+GET  /api/clubs                your tables + invitations waiting for you
+GET  /api/clubs/open           public tables still in the lobby
+POST /api/clubs {name, mode: live|timed, visibility: private|public}
+POST /api/clubs/join {code} | {id}
+POST /api/invitations/:id/decline
+GET  /api/clubs/:id            the table as you are allowed to see it
+POST /api/clubs/:id/start | leave | bots {count} | invite {name} | uninvite {userId}
+POST /api/clubs/:id/play {cardId, targetId?}     Day card
+POST /api/clubs/:id/endturn
+POST /api/clubs/:id/night {cardId, targetId?}    one card into the Shadows
+POST /api/clubs/:id/vote {targetId | null}
+POST /api/clubs/:id/pact {op: propose|accept|decline|break, targetId?}
+POST /api/clubs/:id/messages {channel: table|whisper, to?, text}
 ```
 
-## Known limits and what comes next
+## Not built yet
 
-- **Seasons often end early.** In 300 simulated all-bot seasons per size, a
-  season ended before its last day when the Members caught every Murderer or
-  the Murderers reached parity: about 1 in 3 at 8 players and 2 in 3 at 25.
-  That is by design. The length is a maximum.
-- **Invitations by name only.** There is no email yet, so the host invites
-  people who already have an account, or sends the code or link privately
-  themselves.
-- **The host can end phases early**, which a host who is also a Murderer could
-  abuse. That is acceptable for private clubs of friends; for public clubs,
-  restrict it.
-- **Not in the MVP yet:** Alibis, the Invitation (recruiting) and the Sealed
-  Envelope, Tribunal runoffs, Whispers (DMs), push and email notifications,
-  password reset, chat moderation and reporting, public matchmaking, cash
-  Vaults.
+- Quick Play matchmaking and a ratings ladder
+- Notifications when it's your move (important for Timed mode)
+- Animations, and more card sets
+- Password reset, and moderation and reporting for chat
+- Smarter bots: they play a plain, ruthless strategy and never seek Pacts
+  with each other
